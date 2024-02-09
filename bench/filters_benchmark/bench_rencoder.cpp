@@ -31,7 +31,6 @@
  *
  * NOTE: the code has been adapted from REncoder/src/run_workload.cpp
  */
-#define USE_SIMD
 #ifndef SET_VERSION
 #define SET_VERSION "REncoder"
 #endif

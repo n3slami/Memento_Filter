@@ -23,7 +23,7 @@
  * This file contains the benchmark for the Bucketing approach heuristic filter.
  */
 
-auto default_container = "sux";
+std::string default_container = "sux";
 
 template <typename REContainer, typename t_itr>
 inline grafite::bucket<REContainer> init_bucketing(const t_itr begin, const t_itr end, const double s)
@@ -51,7 +51,6 @@ int main(int argc, char const *argv[])
     auto parser = init_parser("bench-bucketing");
     parser.add_argument("--ds")
         .nargs(1)
-        .required()
         .default_value(default_container);
 
     try

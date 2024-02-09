@@ -42,17 +42,18 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
     const uint64_t max_range_size = *std::max_element(query_lengths.begin(), query_lengths.end());
     const uint64_t n_items = std::distance(begin, end);
     const double load_factor = 0.95;
-    uint32_t memento_bits = 0;
-    while ((1ULL << memento_bits) < max_range_size)
+    const uint64_t n_slots = n_items / load_factor;
+    uint32_t memento_bits = 1;
+    while ((1ULL << memento_bits) <= max_range_size)
         memento_bits++;
-    const uint32_t fingerprint_size = bpk * load_factor - memento_bits - 3.125;
+    const uint32_t fingerprint_size = round(bpk * load_factor - memento_bits - 2.125);
     uint32_t key_size = 0;
-    while ((1ULL << key_size) < n_items)
+    while ((1ULL << key_size) <= n_slots)
         key_size++;
     key_size += fingerprint_size;
 
     QF *qf = (QF *) malloc(sizeof(QF));
-    qf_malloc(qf, n_items, key_size, memento_bits, QF_HASH_DEFAULT, seed);
+    qf_malloc(qf, n_slots, key_size, memento_bits, QF_HASH_DEFAULT, seed);
 
     start_timer(build_time);
 
@@ -97,12 +98,6 @@ inline size_t size_memento(QF *f)
 int main(int argc, char const *argv[])
 {
     auto parser = init_parser("bench-memento");
-    parser.add_argument("--max_log_range_size")
-        .nargs(1)
-        .required();
-    parser.add_argument("--seed")
-        .nargs(1)
-        .default_value(1ULL);
 
     try
     {
@@ -116,7 +111,6 @@ int main(int argc, char const *argv[])
     }
 
     auto [ keys, queries, arg ] = read_parser_arguments(parser);
-    auto container = parser.get<std::string>("ds");
 
     experiment(pass_fun(init_memento), pass_ref(query_memento),
                 pass_ref(size_memento), arg, keys, queries, queries);

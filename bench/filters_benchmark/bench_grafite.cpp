@@ -23,7 +23,7 @@
  * This file contains the benchmark for the Grafite filter.
  */
 
-auto default_container = "sux";
+std::string default_container = "sux";
 
 template <typename REContainer, typename t_itr>
 inline grafite::filter<REContainer> init_grafite(const t_itr begin, const t_itr end, const double bpk)
@@ -51,7 +51,6 @@ int main(int argc, char const *argv[])
     auto parser = init_parser("bench-grafite");
     parser.add_argument("--ds")
         .nargs(1)
-        .required()
         .default_value(default_container);
 
     try

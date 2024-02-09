@@ -98,7 +98,6 @@ def execute_test(ds, keys_path, data, path_csv):
         print(stream.read())
         print('{:^24s}'.format("[ command finished ]"))
     print('{:^24s}'.format(f"[ --- {ds} finished --- ]"))
-    pass
 
 
 def bulk_execute(path_test_base, incremental_test=False):
@@ -138,9 +137,7 @@ def bulk_execute(path_test_base, incremental_test=False):
                 # execute normal test
                 with open(path_curr_csv, 'w') as document:
                     execute_test(ds, keys_path, test, path_curr_csv)
-                    pass
                 print(f'[+] {path_curr_csv} executed and saved')
-    pass
 
 
 def parse_tests(test_dir_path):
@@ -216,7 +213,8 @@ if __name__ == "__main__":
         ds_list = ['grafite']
         ds_parameters['grafite'] = [20]  # 20 bpk (L = 2^8, eps = 0.001)
     elif test_name == 'corr':
-        ds_parameters = {'grafite': [20],
+        ds_parameters = {'memento': [20],
+                         'grafite': [20],
                          'bucketing': [20], # eps
                          'surf': [10],  # suffix bits
                          'snarf': [20],  # bpk
