@@ -151,6 +151,15 @@ extern "C" {
      */
 	int64_t qf_insert_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags);
 
+    /* Bulk load a set of keys into the filter. The list `sorted_hashes` must 
+     * be a list of key hashes sorted in increasing order of (1) their slot
+     * addresses, (2) fingerprints, and (3) mementos. That is, the highest
+     * order bits of these values must be the slot address, the lower order
+     * bits just after them the fingerprint, and the remaining lowest order
+     * bits, the mementos.
+     */
+	void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags);
+
     bool qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags);
 
 	/* Set the counter for this key/value pair to count. 

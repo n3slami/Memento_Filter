@@ -2681,6 +2681,86 @@ int64_t qf_insert_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) 
     return res;
 }
 
+void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags)
+{
+    assert(flags & QF_KEY_IS_HASH);
+
+    const uint64_t address_size = qf->metadata->key_bits - qf->metadata->fingerprint_bits;
+    const uint64_t address_mask = BITMASK(address_size);
+    const uint64_t fingerprint_mask = BITMASK(qf->metadata->fingerprint_bits);
+    const uint64_t memento_mask = BITMASK(qf->metadata->memento_bits);
+    const uint64_t hash_mask = BITMASK(qf->metadata->key_bits + qf->metadata->fingerprint_bits);
+    const uint64_t two_fingerprints = 2 * qf->metadata->fingerprint_bits;
+
+    const uint64_t orig_quotient_size = qf->metadata->original_quotient_bits;
+    const uint64_t orig_nslots = qf->metadata->nslots >> (qf->metadata->key_bits 
+                                                    - qf->metadata->fingerprint_bits 
+                                                    - qf->metadata->original_quotient_bits);
+
+    uint64_t prefix = sorted_hashes[0] >> qf->metadata->memento_bits, actual_hash;
+    uint64_t memento_list[256];
+    uint32_t prefix_set_size = 1;
+    memento_list[0] = sorted_hashes[0] & memento_mask;
+    uint64_t current_hash = prefix >> two_fingerprints;
+	uint64_t current_pos = (fast_reduce(((current_hash & BITMASK(orig_quotient_size)) 
+                                        << (32 - orig_quotient_size)), orig_nslots)
+                                        << (address_size - orig_quotient_size))
+            | ((current_hash >> orig_quotient_size) & BITMASK(address_size - orig_quotient_size));
+    uint64_t current_run = current_pos, next_pos;
+    for (uint64_t i = 1; i < n; i++) {
+        const uint64_t new_prefix = sorted_hashes[i] >> qf->metadata->memento_bits;
+        if (new_prefix == prefix)
+            memento_list[prefix_set_size++] = sorted_hashes[i] & memento_mask;
+        else {
+            current_run += write_prefix_set(qf, current_run, prefix & fingerprint_mask, 
+                                                memento_list, prefix_set_size);
+            prefix = new_prefix;
+            prefix_set_size = 1;
+            memento_list[0] = sorted_hashes[i] & memento_mask;
+
+            current_hash = prefix >> two_fingerprints;
+            next_pos = (fast_reduce(((current_hash & BITMASK(orig_quotient_size)) 
+                                                << (32 - orig_quotient_size)), orig_nslots)
+                                                << (address_size - orig_quotient_size))
+                    | ((current_hash >> orig_quotient_size) & BITMASK(address_size - orig_quotient_size));
+            if (current_pos != next_pos) {
+                METADATA_WORD(qf, occupieds, current_pos) |= 
+                            (1ULL << ((current_pos % QF_SLOTS_PER_BLOCK) % 64));
+                METADATA_WORD(qf, runends, (current_run - 1)) |= 
+                            (1ULL << (((current_run - 1) % QF_SLOTS_PER_BLOCK) % 64));
+                int32_t cnt = current_run - (current_pos / QF_SLOTS_PER_BLOCK + 1) * QF_SLOTS_PER_BLOCK;
+                for (uint64_t block_ind = current_pos / QF_SLOTS_PER_BLOCK + 1;
+                        block_ind <= (current_run - 1) / QF_SLOTS_PER_BLOCK; block_ind++) {
+                    if (get_block(qf, block_ind)->offset + cnt
+                            < BITMASK(8 * sizeof(qf->blocks[0].offset)))
+                        get_block(qf, block_ind)->offset += cnt;
+                    else
+                        get_block(qf, block_ind)->offset = BITMASK(8 * sizeof(qf->blocks[0].offset));
+                    cnt -= QF_SLOTS_PER_BLOCK;
+                }
+                current_pos = next_pos;
+                current_run = (current_run < current_pos ? current_pos : current_run);
+            }
+        }
+    }
+    current_run += write_prefix_set(qf, current_run, prefix & fingerprint_mask, 
+                                        memento_list, prefix_set_size);
+    METADATA_WORD(qf, occupieds, current_pos) |= 
+                        (1ULL << ((current_pos % QF_SLOTS_PER_BLOCK) % 64));
+    METADATA_WORD(qf, runends, (current_run - 1)) |= 
+                        (1ULL << (((current_run - 1) % QF_SLOTS_PER_BLOCK) % 64));
+    int32_t cnt = current_run - (current_pos / QF_SLOTS_PER_BLOCK + 1) * QF_SLOTS_PER_BLOCK;
+    for (uint64_t block_ind = current_pos / QF_SLOTS_PER_BLOCK + 1;
+            block_ind <= (current_run - 1) / QF_SLOTS_PER_BLOCK; block_ind++) {
+        if (get_block(qf, block_ind)->offset + cnt
+                < BITMASK(8 * sizeof(qf->blocks[0].offset)))
+            get_block(qf, block_ind)->offset += cnt;
+        else
+            get_block(qf, block_ind)->offset = BITMASK(8 * sizeof(qf->blocks[0].offset));
+        cnt -= QF_SLOTS_PER_BLOCK;
+    }
+}
+
 bool qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
 	if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
 		if (qf->metadata->hash_mode == QF_HASH_DEFAULT)

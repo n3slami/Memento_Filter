@@ -16,16 +16,59 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../bench_template.hpp"
-#include "memento.h"
-#include "memento_int.h"
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <boost/sort/sort.hpp>
+
+#include "../bench_template.hpp"
+#include "memento.h"
+#include "memento_int.h"
 
 /**
- * This file contains the benchmark for the Grafite filter.
+ * This file contains the benchmark for Memento filter.
  */
+
+inline uint64_t MurmurHash64A(const void * key, int len, unsigned int seed)
+{
+	const uint64_t m = 0xc6a4a7935bd1e995;
+	const int r = 47;
+
+	uint64_t h = seed ^ (len * m);
+
+	const uint64_t * data = (const uint64_t *)key;
+	const uint64_t * end = data + (len/8);
+
+	while(data != end) {
+		uint64_t k = *data++;
+
+		k *= m;
+		k ^= k >> r;
+		k *= m;
+
+		h ^= k;
+		h *= m;
+	}
+
+	const unsigned char * data2 = (const unsigned char*)data;
+
+	switch(len & 7) {
+		case 7: h ^= (uint64_t)data2[6] << 48; do {} while (0);  /* fallthrough */
+		case 6: h ^= (uint64_t)data2[5] << 40; do {} while (0);  /* fallthrough */
+		case 5: h ^= (uint64_t)data2[4] << 32; do {} while (0);  /* fallthrough */
+		case 4: h ^= (uint64_t)data2[3] << 24; do {} while (0);  /* fallthrough */
+		case 3: h ^= (uint64_t)data2[2] << 16; do {} while (0);  /* fallthrough */
+		case 2: h ^= (uint64_t)data2[1] << 8; do {} while (0); /* fallthrough */
+		case 1: h ^= (uint64_t)data2[0];
+						h *= m;
+	};
+
+	h ^= h >> r;
+	h *= m;
+	h ^= h >> r;
+
+	return h;
+}
 
 template <typename t_itr, typename... Args>
 inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Args... args)
@@ -37,10 +80,9 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
         auto [left, right, result] = x;
         return right - left + 1;
     });
-
+    const uint64_t n_items = std::distance(begin, end);
     const uint64_t seed = std::chrono::steady_clock::now().time_since_epoch().count();
     const uint64_t max_range_size = *std::max_element(query_lengths.begin(), query_lengths.end());
-    const uint64_t n_items = std::distance(begin, end);
     const double load_factor = 0.95;
     const uint64_t n_slots = n_items / load_factor;
     uint32_t memento_bits = 1;
@@ -57,23 +99,26 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
 
     start_timer(build_time);
 
+    auto key_hashes = std::vector<uint64_t>(n_items);
+    const uint64_t address_size = key_size - fingerprint_size;
+    const uint64_t address_mask = (1ULL << address_size) - 1;
     const uint64_t memento_mask = (1ULL << memento_bits) - 1;
-    uint64_t prefix = (*begin) >> memento_bits;
-    uint64_t memento_list[256];
-    uint32_t prefix_set_size = 1;
-    memento_list[0] = (*begin) & memento_mask;
-    for (t_itr it = begin + 1; it != end; it++) {
-        const uint64_t new_prefix = (*it) >> memento_bits;
-        if (new_prefix == prefix)
-            memento_list[prefix_set_size++] = (*it) & memento_mask;
-        else {
-            qf_insert_mementos(qf, prefix, memento_list, prefix_set_size, QF_NO_LOCK);
-            prefix = new_prefix;
-            prefix_set_size = 1;
-            memento_list[0] = (*it) & memento_mask;
-        }
-    }
-    qf_insert_mementos(qf, prefix, memento_list, prefix_set_size, QF_NO_LOCK);
+    const uint64_t hash_mask = (1ULL << (key_size + fingerprint_size)) - 1;
+    const uint64_t two_fingerprints = 2 * fingerprint_size;
+    std::transform(begin, end, key_hashes.begin(), [&](auto x) {
+            auto y = x >> memento_bits;
+            uint64_t hash = MurmurHash64A(((void *)&y), sizeof(y), seed) & hash_mask;
+            hash = (hash >> address_size) | ((hash & address_mask) << two_fingerprints);
+            return (hash << memento_bits) | (x & memento_mask);
+            });
+    /*
+     * The following code uses the Boost library to sort the elements in a single thread, via spreadsort function.
+     * This function is faster than std::sort and exploits the fact that the size of the maximum hash is bounded
+     * via hybrid radix sort.
+     */
+    boost::sort::spreadsort::spreadsort(key_hashes.begin(), key_hashes.end());
+
+    qf_bulk_load(qf, &key_hashes[0], key_hashes.size(), QF_NO_LOCK | QF_KEY_IS_HASH);
 
     stop_timer(build_time);
 
