@@ -264,7 +264,13 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
         printProgress(((double) q.size()) / n_queries);
     }
 
-    return {q.begin(), q.end()};
+    Workload<uint64_t> q_out;
+    q_out.reserve(q.size());
+    for (auto i : q)
+        q_out.push_back(i);
+    std::mt19937 shuffle_gen(seed);
+    std::shuffle(q_out.begin(), q_out.end(), shuffle_gen);
+    return q_out;
 }
 
 Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<uint64_t> &keys,
