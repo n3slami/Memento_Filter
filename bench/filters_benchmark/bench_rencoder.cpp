@@ -147,6 +147,11 @@ inline RENCODER init_rencoder(const t_itr begin, const t_itr end, const double b
 }
 
 template<typename value_type>
+inline void insert_rencoder(RENCODER &f, const value_type key) {
+    f.Insert(key);
+}
+
+template<typename value_type>
 inline bool query_rencoder(RENCODER &f, const value_type left, const value_type right) {
     return f.RangeQuery(left, right);
 }
@@ -170,7 +175,7 @@ int main(int argc, char const *argv[]) {
     std::cout << "[INFO] " << "REncoder version: " << VERSION << std::endl;
 
     auto [keys, queries, arg] = read_parser_arguments(parser);
-    experiment(pass_fun(init_rencoder), pass_ref(query_rencoder),
+    experiment(pass_fun(init_rencoder), pass_ref(query_rencoder), pass_ref(insert_rencoder),
                pass_ref(size_rencoder), arg, keys, queries, queries);
     print_test();
 

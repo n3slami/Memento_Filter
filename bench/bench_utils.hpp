@@ -76,7 +76,7 @@ bool vector_point_query(const InputKeys<KeyType> &k, const KeyType x) {
 }
 
 template<typename KeyType>
-std::vector<KeyType> read_data_binary(const std::string &filename, bool check_sorted = true) {
+std::vector<KeyType> read_data_binary(const std::string &filename, bool check_sorted=false) {
     std::vector<KeyType> data;
 
     try {

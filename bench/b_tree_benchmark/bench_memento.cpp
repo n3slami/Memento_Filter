@@ -20,11 +20,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <boost/sort/sort.hpp>
 
-#include "../bench_template.hpp"
+#include "../bench_template_b_tree.hpp"
 #include "memento.h"
 #include "memento_int.h"
 
@@ -93,6 +94,10 @@ inline void check_iteration_validity(QF *qf, bool mode)
         }
         int result_length = qfi_get_hash(&iter, &hash_result, memento_result);
         current_fingerprint = hash_result >> (qf->metadata->key_bits - qf->metadata->fingerprint_bits);
+        if (current_fingerprint == 0) {
+            std::cerr << "WTF run=" << iter.run << " current=" << iter.current << " vs. nslots=" << qf->metadata->nslots << std::endl; 
+            exit(1);
+        }
         assert(current_fingerprint > 0);
         if (iter.run != last_run)
             last_run = iter.run;
@@ -130,7 +135,7 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
     //const uint64_t seed = std::chrono::steady_clock::now().time_since_epoch().count();
     const uint64_t seed = 1380;
     const uint64_t max_range_size = *std::max_element(query_lengths.begin(), query_lengths.end());
-    const double load_factor = 0.95;
+    const double load_factor = 0.94;
     const uint64_t n_slots = n_items / load_factor + std::sqrt(n_items);
     uint32_t memento_bits = 1;
     while ((1ULL << memento_bits) < max_range_size)
@@ -154,9 +159,11 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
     const uint64_t address_mask = (1ULL << address_size) - 1;
     const uint64_t memento_mask = (1ULL << memento_bits) - 1;
     const uint64_t hash_mask = (1ULL << key_size) - 1;
+    SimpleBigInt key(key_len);
     std::transform(begin, end, key_hashes.begin(), [&](auto x) {
-            auto y = x >> memento_bits;
-            uint64_t hash = MurmurHash64A(((void *)&y), sizeof(y), seed) & hash_mask;
+            auto y = x & ~(memento_mask);
+            key = y;
+            uint64_t hash = MurmurHash64A(((void *) key.num), key_len, seed) & hash_mask;
             const uint64_t address = fast_reduce((hash & address_mask) << (32 - address_size),
                                                     n_slots);
             hash = (hash >> address_size) | (address << fingerprint_size);
@@ -181,19 +188,42 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
 template <typename value_type>
 inline void insert_memento(QF *f, const value_type key)
 {
-    value_type prefix = key >> f->metadata->memento_bits;
-    value_type memento = key & ((1ULL << f->metadata->memento_bits) - 1);
-    qf_insert_single(f, prefix, memento, QF_NO_LOCK);
+    char dup_key[key_len];
+    memcpy(dup_key, key, key_len);
+    uint64_t memento = 0;
+    for (uint32_t i = 0; 8 * i < f->metadata->memento_bits; i++) {
+        const uint64_t mask = ((1ULL << (f->metadata->memento_bits - 8 * i)) - 1);
+        memento |= (dup_key[key_len - i - 1] & mask) << (8 * i);
+        dup_key[key_len - i - 1] &= ~(mask);
+    }
+    uint64_t prefix_hash = MurmurHash64A((void *) dup_key, key_len, f->metadata->seed);
+
+    qf_insert_single(f, prefix_hash, memento, QF_NO_LOCK | QF_KEY_IS_HASH);
 }
 
 template <typename value_type>
 inline bool query_memento(QF *f, const value_type left, const value_type right)
 {
-    value_type l_key = left >> f->metadata->memento_bits;
-    value_type l_memento = left & ((1ULL << f->metadata->memento_bits) - 1);
-    value_type r_key = right >> f->metadata->memento_bits;
-    value_type r_memento = right & ((1ULL << f->metadata->memento_bits) - 1);
-    return qf_range_query(f, l_key, l_memento, r_key, r_memento, QF_NO_LOCK);
+    char dup_key[key_len];
+    memcpy(dup_key, left, key_len);
+    uint64_t l_memento = 0;
+    for (uint32_t i = 0; 8 * i < f->metadata->memento_bits; i++) {
+        const uint64_t mask = ((1ULL << (f->metadata->memento_bits - 8 * i)) - 1);
+        l_memento |= (dup_key[key_len - i - 1] & mask) << (8 * i);
+        dup_key[key_len - i - 1] &= ~(mask);
+    }
+    uint64_t l_hash = MurmurHash64A((void *) dup_key, key_len, f->metadata->seed);
+
+    memcpy(dup_key, right, key_len);
+    uint64_t r_memento = 0;
+    for (uint32_t i = 0; 8 * i < f->metadata->memento_bits; i++) {
+        const uint64_t mask = ((1ULL << (f->metadata->memento_bits - 8 * i)) - 1);
+        r_memento |= (dup_key[key_len - i - 1] & mask) << (8 * i);
+        dup_key[key_len - i - 1] &= ~(mask);
+    }
+    uint64_t r_hash = MurmurHash64A((void *) dup_key, key_len, f->metadata->seed);
+
+    return qf_range_query(f, l_hash, l_memento, r_hash, r_memento, QF_NO_LOCK | QF_KEY_IS_HASH);
 }
 
 inline size_t size_memento(QF *f)
@@ -225,5 +255,6 @@ int main(int argc, char const *argv[])
 
     return 0;
 }
+
 
 

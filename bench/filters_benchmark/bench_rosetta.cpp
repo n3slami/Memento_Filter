@@ -60,6 +60,12 @@ inline DstFilter<BloomFilter<>> init_rosetta(const t_itr begin, const t_itr end,
 }
 
 template <typename value_type>
+inline void insert_rosetta(DstFilter<BloomFilter<>> &f, const value_type key)
+{
+    f.AddKey(key);
+}
+
+template <typename value_type>
 inline bool query_rosetta(DstFilter<BloomFilter<>> &f, const value_type left, const value_type right)
 {
     if (left == right)
@@ -91,7 +97,7 @@ int main(int argc, char const *argv[])
 
     auto [keys, queries, arg] = read_parser_arguments(parser);
 
-    experiment(pass_fun(init_rosetta), pass_ref(query_rosetta),
+    experiment(pass_fun(init_rosetta), pass_ref(query_rosetta), pass_ref(insert_rosetta),
                pass_ref(size_rosetta), arg, keys, queries, queries);
     print_test();
 

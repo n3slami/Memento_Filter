@@ -162,6 +162,16 @@ extern "C" {
 
     bool qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags);
 
+    /* Regroup the mementos of a specific prefix. If `new_ind` is not `-1`, the 
+     * memento that it is referencing is a new memento that is being added to 
+     * the prefix set. Therefore, the function regroups and rejuvinates the 
+     * rest, and adds this new memento to the final list. If it is `-1`, then 
+     * the prefix set is simply regrouped rejuvinated.
+     */
+    int64_t qf_rejuvenate_construct_prefix_set(QF *qf, uint64_t key, 
+            uint64_t *mementos, uint32_t memento_cnt, int32_t new_ind,
+            uint8_t flags);
+
 	/* Set the counter for this key/value pair to count. 
 	 Return value: Same as qf_insert. 
 	 Returns 0 if new count is equal to old count.

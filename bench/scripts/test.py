@@ -29,33 +29,15 @@ use_numa = False
 membind = 0
 physcpubind = 16
 
-ds_list = ["memento", "grafite", "bucketing", "surf", "rosetta", "snarf", "proteus", 'rencoder', 'rencoder_ss', 'rencoder_se']
-# ds_list_with_bucketing = ds_list.copy() + ['bucketing']
+ds_list = ["memento", "snarf", "rosetta", "rencoder"]
+b_tree_ds_list = ["memento", "none"]
 
 ds_benchmark_executables = {}
 
 ds_parameters = {'memento': list(np.linspace(8, 28, 6)),  # eps
-                 'grafite': list(np.linspace(8, 28, 6)),  # eps
-                 'surf': [1, 4, 7, 10, 13, 16],  # suffix bits
                  'snarf': list(np.linspace(8, 28, 6)),  # bpk
                  'rosetta': list(np.linspace(8, 28, 6)),  # bpk
-                 'proteus': list(np.linspace(8, 28, 6)),
-                 'bucketing': list(np.linspace(8, 28, 6)),
-                 'rencoder': list(np.linspace(8, 28, 6)),  # bpk
-                 'rencoder_ss': list(np.linspace(8, 28, 6)),  # bpk
-                 'rencoder_se': list(np.linspace(8, 28, 6))}  # bpk
-
-ds_parameters_small_universe = {'memento': list(np.linspace(7, 12, 6)),  # eps
-                                'grafite': list(np.linspace(7, 12, 6)),  # eps
-                                'surf': [0, 1, 2, 3, 4, 5],  # suffix bits
-                                'snarf': list(np.linspace(7, 12, 6)),  # bpk
-                                'rosetta': list(np.linspace(7, 12, 6)),  # bpk
-                                'proteus': list(np.linspace(7, 12, 6)),
-                                'bucketing': list(np.linspace(7, 12, 6)),
-                                'rencoder': list(np.linspace(7, 12, 6)),  # bpk
-                                'rencoder_ss': list(np.linspace(7, 12, 6)),  # bpk
-                                'rencoder_se': list(np.linspace(7, 12, 6))}  # bpk
-
+                 'rencoder': list(np.linspace(8, 28, 6))}  # bpk
 
 # Format of the test directories for bulk testing
 # [test] ---> [{dataset name}] ---> keys.bin
@@ -81,17 +63,20 @@ ds_parameters_small_universe = {'memento': list(np.linspace(7, 12, 6)),  # eps
 
 def execute_test(ds, keys_path, data, path_csv):
     print(keys_path)
-
-    if keys_path and 'fb' in str(keys_path):
-        param = ds_parameters_small_universe[ds]
-    else:
-        param = ds_parameters[ds]
+    param = ds_parameters[ds]
 
     for arg in param:
         if 'rosetta' not in ds and use_numa:
             command = f'numactl --membind={membind} --physcpubind={physcpubind} {ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
         else:
             command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
+
+        if "b_tree" in str(ds_benchmark_executables[ds]):
+            TOTAL_BUFFER_POOL_SIZE_MB = 3
+            B_TREE_N_KEYS = 1000000
+            filter_size = int(TOTAL_BUFFER_POOL_SIZE_MB - B_TREE_N_KEYS * arg / 8 / 1024 / 1024)
+            buffer_pool_size_mb = filter_size if ds != "none" else TOTAL_BUFFER_POOL_SIZE_MB
+            command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --buffer_pool_size {buffer_pool_size_mb}MB --csv {path_csv}'
 
         print('{:^24s}'.format(f"[ starting \"{command}\"]"))
         stream = os.popen(command)
@@ -188,7 +173,7 @@ if __name__ == "__main__":
     parser.add_argument('--physcpubind', default=16, help='the cpu to use (if numa is set)')
     parser.add_argument('--test_name', default='fpr', help='the name of the test to execute')
     parser.add_argument('test_dir', type=Path, help='the directory containing the tests')
-    parser.add_argument('grafite_dir', type=Path, help='the directory containing the grafite build')
+    parser.add_argument('memento_dir', type=Path, help='the directory containing the memento build')
 
     args = parser.parse_args()
     inc = args.incremental
@@ -202,32 +187,25 @@ if __name__ == "__main__":
         raise FileNotFoundError(
             'error, the test dir does not exists')
 
-    if not args.grafite_dir.exists():
+    if not args.memento_dir.exists():
         raise FileNotFoundError(
-            'error, the grafite dir does not exists')
+            'error, the memento dir does not exists')
 
-    if test_name == 'fpr' or test_name == 'fpr_real':
-        # ds_list = ds_list_with_bucketing
-        pass
-    elif test_name == 'lemma':
-        ds_list = ['grafite']
-        ds_parameters['grafite'] = [20]  # 20 bpk (L = 2^8, eps = 0.001)
-    elif test_name == 'corr':
-        ds_parameters = {'memento': [20],
-                         'grafite': [20],
-                         'bucketing': [20], # eps
-                         'surf': [10],  # suffix bits
-                         'snarf': [20],  # bpk
-                         'rosetta': [20],  # bpk
-                         'proteus': [20],
-                         'rencoder': [20],  # bpk
-                         'rencoder_ss': [20],  # bpk
-                         'rencoder_se': [20]}  # bpk
+    if test_name == "expansion":
+        ds_parameters = {"memento": [20],   # bpk
+                         "snarf": [20],     # bpk
+                         "rosetta": [20],   # bpk
+                         "rencoder": [20]}  # bpk
+    elif test_name == "b_tree":
+        ds_parameters = {"memento": [15],   # bpk
+                         "none": [0]}       # bpk
+        ds_list = b_tree_ds_list
 
-    benchmarks_dir = Path(f'{args.grafite_dir}/bench/')
+    benchmarks_dir = Path(f'{args.memento_dir}/bench/')
 
-    for d in ds_list:
-        p = Path(f'{benchmarks_dir}/bench_{d}')
+    for d in (b_tree_ds_list if test_name == "b_tree" else ds_list):
+        p = Path(f"{benchmarks_dir}/bench_b_tree_{d}" if test_name == "b_tree" \
+                                                      else f"{benchmarks_dir}/bench_{d}")
         if not p.exists():
             raise FileNotFoundError(f'error, {d} benchmark not found in {benchmarks_dir}')
         ds_benchmark_executables[d] = p

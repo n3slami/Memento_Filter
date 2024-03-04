@@ -65,7 +65,49 @@ generate_constr_time_test() {
   done
 }
 
-mkdir -p $OUT_PATH/corr_test && cd $OUT_PATH/corr_test || exit 1
+generate_expansion_test() {
+  i=0
+  x=0.0
+  expansion_count=6
+
+  while [ $i -le 5 ]
+  do
+    $WORKLOAD_GEN_PATH --mixed --kdist kuniform --qdist qcorrelated --corr-degree ${x} --expansion-count ${expansion_count}
+    mv kuniform/ kuniform_${i}/
+    $WORKLOAD_GEN_PATH --mixed --kdist knormal --qdist qcorrelated --corr-degree ${x} --expansion-count ${expansion_count}
+    mv knormal/ knormal_${i}/
+    x=$(echo $x + 0.2 | bc)
+    i=$(($i + 1))
+  done
+}
+
+generate_b_tree_test() {
+  expansion_count=3
+
+  $WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 1000000 --qdist quniform -q 200000 --range-size 0 5 --expansion-count ${expansion_count}
+  #$WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 1000000 --qdist qnormal -q 500000  --range-size 0 5 --expansion-count ${expansion_count}
+  #$WORKLOAD_GEN_PATH --mixed --kdist knormal -n 1000000 --qdist quniform -q 500000  --range-size 0 5 --expansion-count ${expansion_count}
+  $WORKLOAD_GEN_PATH --mixed --kdist knormal -n 1000000 --qdist qnormal -q 200000 --range-size 0 5 --expansion-count ${expansion_count}
+}
+
+:'
+mkdir -p $OUT_PATH/expansion_test && cd $OUT_PATH/expansion_test || exit 1
+if ! generate_expansion_test ; then
+  echo "[!!] expansion_test generation failed"
+  exit 1
+fi
+echo "[!!] expansion_test dataset generated"
+'
+
+mkdir -p $OUT_PATH/b_tree_test && cd $OUT_PATH/b_tree_test || exit 1
+if ! generate_b_tree_test ; then
+  echo "[!!] b_tree_test generation failed"
+  exit 1
+fi
+echo "[!!] b_tree_test dataset generated"
+
+: '
+mkdir -p ../corr_test && cd ../corr_test || exit 1
 if ! generate_corr_test ; then
   echo "[!!] corr_test generation failed"
   exit 1
@@ -101,4 +143,10 @@ if ! generate_constr_time_test ; then
   exit 1
 fi
 echo "[!!] constr_time_test (figure 7) dataset generated"
+if ! generate_workload_shift_test ; then
+  echo "[!!] workload_shift_test generation failed"
+  exit 1
+fi
+echo "[!!] workload_shift_test dataset generated"
+'
 echo "[!!] success, all datasets generated"

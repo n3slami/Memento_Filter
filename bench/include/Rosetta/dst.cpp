@@ -202,6 +202,13 @@ void BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
 }
 
 template<bool keep_stats>
+void BloomFilter<keep_stats>::AddKey(const Bitwise key) {
+    for (size_t i=0; i<nhf_; ++i) {
+        data_.set(key.hash(seeds_[i], nmod_), 1);
+    }
+}
+
+template<bool keep_stats>
 bool BloomFilter<keep_stats>::Query(const Bitwise &key) {
     if (data_.size() == 0) return true;
     bool out=true;
@@ -340,6 +347,13 @@ void DstFilter<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     for (size_t i=0; i<maxlen_; ++i) {
         bfs_.emplace_back(FilterClass(nbits[i]));
         bfs_[i].AddKeys(bloom_keys[i]);
+    }
+}
+
+template<class FilterClass, bool keep_stats>
+void DstFilter<FilterClass, keep_stats>::AddKey(const Bitwise key) {
+    for (size_t i=0; i<maxlen_; ++i) {
+        bfs_[i].AddKey(key);
     }
 }
 

@@ -16,44 +16,45 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "../bench_template.hpp"
-#include "../include/SNARF/include/snarf.cpp"
+#include "../bench_template_b_tree.hpp"
+#include <algorithm>
+#include <cstdint>
+#include <iterator>
+
 /**
- * This file contains the benchmark for the SNARF filter.
+ * This file contains the benchmark for the Grafite filter.
  */
 
-template <typename t_itr>
-inline snarf_updatable_gcs<typename t_itr::value_type> init_snarf(const t_itr begin, const t_itr end, const double bpk)
+template <typename t_itr, typename... Args>
+inline void *init_none(const t_itr begin, const t_itr end, const double bpk, Args... args)
 {
-    std::vector<typename t_itr::value_type> keys(begin, end);
     start_timer(build_time);
-    snarf_updatable_gcs<typename t_itr::value_type> f;
-    f.snarf_init(keys, bpk, 100);
     stop_timer(build_time);
-    return f;
+    return nullptr;
 }
 
 template <typename value_type>
-inline void insert_snarf(snarf_updatable_gcs<value_type> &f, const value_type key)
+inline bool query_none(void *f, const value_type l, const value_type r)
 {
-    f.insert_key(key);
+    return true;
 }
 
 template <typename value_type>
-inline bool query_snarf(snarf_updatable_gcs<value_type> &f, const value_type left, const value_type right)
+inline void insert_none(void *f, const value_type key)
 {
-    return f.range_query(left, right);
+    return;
 }
 
-template <typename value_type>
-inline size_t size_snarf(snarf_updatable_gcs<value_type> &f)
+
+inline size_t size_none(void *f)
 {
-    return f.return_size();
+    return 0;
 }
 
 int main(int argc, char const *argv[])
 {
-    auto parser = init_parser("bench-snarf");
+    auto parser = init_parser("bench-b-tree-none");
+
     try
     {
         parser.parse_args(argc, argv);
@@ -66,9 +67,12 @@ int main(int argc, char const *argv[])
     }
 
     auto [ keys, queries, arg ] = read_parser_arguments(parser);
-    experiment(pass_fun(init_snarf), pass_ref(query_snarf), pass_ref(insert_snarf),
-               pass_ref(size_snarf), arg, keys, queries);
+    experiment(pass_fun(init_none), pass_ref(query_none), pass_ref(insert_none),
+               pass_ref(size_none), arg, keys, queries);
+
     print_test();
 
     return 0;
 }
+
+

@@ -243,6 +243,7 @@ class Filter {
         Filter(){};
         virtual ~Filter(){};
         virtual void AddKeys(const vector<Bitwise> &keys) = 0;
+        virtual void AddKey(const Bitwise key) = 0;
         virtual bool Query(const Bitwise &key) = 0;
         virtual pair<uint8_t*, size_t> serialize() const = 0;
         static pair<Filter*, size_t> deserialize(uint8_t* ser);
@@ -265,6 +266,7 @@ class BloomFilter final : public Filter {
         BloomFilter(size_t nbits, uint8_t* data, size_t nhf, size_t nkeys, vector<size_t> seeds): data_(Bitwise(data, nbits/8, false)), nhf_(nhf), nkeys_(nkeys), seeds_(seeds), nmod_(nbits) {}
 
         void AddKeys(const vector<Bitwise> &keys);
+        void AddKey(const Bitwise key);
         bool Query(const Bitwise &key);
         pair<uint8_t*, size_t> serialize() const;
         static pair<BloomFilter<keep_stats>*, size_t> deserialize(uint8_t* ser);
@@ -317,6 +319,7 @@ class DstFilter final: public Filter {
         }
 
         void AddKeys(const vector<Bitwise> &keys);
+        void AddKey(const Bitwise key);
         bool Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel);
         Bitwise *GetFirst(const Bitwise &from, const Bitwise &to);
         bool Query(const Bitwise &key);
