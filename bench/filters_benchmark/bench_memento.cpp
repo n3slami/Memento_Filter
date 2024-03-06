@@ -136,7 +136,7 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
     while ((1ULL << memento_bits) < max_range_size)
         memento_bits++;
     memento_bits = memento_bits < 2 ? 2 : memento_bits;
-    const uint32_t fingerprint_size = round(bpk * load_factor - memento_bits - 3.125);
+    const uint32_t fingerprint_size = round(bpk * load_factor - memento_bits - 2.125);
     uint32_t key_size = 0;
     while ((1ULL << key_size) <= n_slots)
         key_size++;
@@ -179,18 +179,13 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
 }
 
 template <typename value_type>
-inline void insert_memento(QF *f, const value_type key)
-{
-    value_type prefix = key >> f->metadata->memento_bits;
-    value_type memento = key & ((1ULL << f->metadata->memento_bits) - 1);
-    qf_insert_single(f, prefix, memento, QF_NO_LOCK);
-}
-
-template <typename value_type>
 inline bool query_memento(QF *f, const value_type left, const value_type right)
 {
     value_type l_key = left >> f->metadata->memento_bits;
     value_type l_memento = left & ((1ULL << f->metadata->memento_bits) - 1);
+    if (left == right) {
+        return qf_point_query(f, l_key, l_memento, QF_NO_LOCK);
+    }
     value_type r_key = right >> f->metadata->memento_bits;
     value_type r_memento = right & ((1ULL << f->metadata->memento_bits) - 1);
     return qf_range_query(f, l_key, l_memento, r_key, r_memento, QF_NO_LOCK);
@@ -218,7 +213,7 @@ int main(int argc, char const *argv[])
 
     auto [ keys, queries, arg ] = read_parser_arguments(parser);
 
-    experiment(pass_fun(init_memento), pass_ref(query_memento), pass_ref(insert_memento),
+    experiment(pass_fun(init_memento), pass_ref(query_memento), 
                 pass_ref(size_memento), arg, keys, queries, queries);
 
     print_test();

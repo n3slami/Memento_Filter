@@ -71,12 +71,6 @@ if ! generate_corr_test ; then
   exit 1
 fi
 echo "[!!] corr_test (figure 1, 5) dataset generated"
-mkdir -p ../lemma_test && cd ../lemma_test || exit 1
-if ! $WORKLOAD_GEN_PATH -n 10000000 -q 1000000 --qdist quniform --range-size $(seq 0 16) ; then
-  echo "[!!] lemma_test generation failed"
-  exit 1
-fi
-echo "[!!] lemma_test (figure 2) dataset generated"
 mkdir -p ../fpr_test && cd ../fpr_test || exit 1
 if ! $WORKLOAD_GEN_PATH --mixed ; then
   echo "[!!] fpr_test generation failed"

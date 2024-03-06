@@ -38,11 +38,6 @@ if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test corr $WORKLOADS_PATH/corr_tes
   exit 1
 fi
 echo "[!!] corr_test (figure 1,3) test executed successfully"
-if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test lemma $WORKLOADS_PATH/lemma_test $GRAFITE_BUILD_PATH ; then
-  echo "[!!] lemma_test test failed"
-  exit 1
-fi
-echo "[!!] lemma_test test executed successfully"
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test fpr $WORKLOADS_PATH/fpr_test $GRAFITE_BUILD_PATH ; then
   echo "[!!] fpr_test test failed"
   exit 1

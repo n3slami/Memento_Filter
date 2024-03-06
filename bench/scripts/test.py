@@ -29,7 +29,7 @@ use_numa = False
 membind = 0
 physcpubind = 16
 
-ds_list = ["memento", "grafite", "bucketing", "surf", "rosetta", "snarf", "proteus", 'rencoder', 'rencoder_ss', 'rencoder_se']
+ds_list = ["memento", "grafite", "surf", "rosetta", "snarf", "proteus", "rencoder"]
 # ds_list_with_bucketing = ds_list.copy() + ['bucketing']
 
 ds_benchmark_executables = {}
@@ -40,10 +40,7 @@ ds_parameters = {'memento': list(np.linspace(8, 28, 6)),  # eps
                  'snarf': list(np.linspace(8, 28, 6)),  # bpk
                  'rosetta': list(np.linspace(8, 28, 6)),  # bpk
                  'proteus': list(np.linspace(8, 28, 6)),
-                 'bucketing': list(np.linspace(8, 28, 6)),
-                 'rencoder': list(np.linspace(8, 28, 6)),  # bpk
-                 'rencoder_ss': list(np.linspace(8, 28, 6)),  # bpk
-                 'rencoder_se': list(np.linspace(8, 28, 6))}  # bpk
+                 'rencoder': list(np.linspace(8, 28, 6))}  # bpk
 
 ds_parameters_small_universe = {'memento': list(np.linspace(7, 12, 6)),  # eps
                                 'grafite': list(np.linspace(7, 12, 6)),  # eps
@@ -51,10 +48,7 @@ ds_parameters_small_universe = {'memento': list(np.linspace(7, 12, 6)),  # eps
                                 'snarf': list(np.linspace(7, 12, 6)),  # bpk
                                 'rosetta': list(np.linspace(7, 12, 6)),  # bpk
                                 'proteus': list(np.linspace(7, 12, 6)),
-                                'bucketing': list(np.linspace(7, 12, 6)),
-                                'rencoder': list(np.linspace(7, 12, 6)),  # bpk
-                                'rencoder_ss': list(np.linspace(7, 12, 6)),  # bpk
-                                'rencoder_se': list(np.linspace(7, 12, 6))}  # bpk
+                                'rencoder': list(np.linspace(7, 12, 6))}  # bpk
 
 
 # Format of the test directories for bulk testing
@@ -215,14 +209,11 @@ if __name__ == "__main__":
     elif test_name == 'corr':
         ds_parameters = {'memento': [20],
                          'grafite': [20],
-                         'bucketing': [20], # eps
                          'surf': [10],  # suffix bits
                          'snarf': [20],  # bpk
                          'rosetta': [20],  # bpk
                          'proteus': [20],
-                         'rencoder': [20],  # bpk
-                         'rencoder_ss': [20],  # bpk
-                         'rencoder_se': [20]}  # bpk
+                         'rencoder': [20]}  # bpk
 
     benchmarks_dir = Path(f'{args.grafite_dir}/bench/')
 

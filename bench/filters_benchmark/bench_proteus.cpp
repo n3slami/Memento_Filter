@@ -43,6 +43,7 @@ inline proteus::Proteus init_proteus(const t_itr begin, const t_itr end, const d
     });
 
     auto sample_queries = proteus::sampleQueries(queries, sample_rate);
+    std::sort(sample_queries.begin(), sample_queries.end());
     start_timer(modelling_time);
     std::tuple<size_t, size_t, size_t> parameters = proteus::modeling(keys, sample_queries, bpk, klen);
     stop_timer(modelling_time);

@@ -127,13 +127,14 @@ inline RENCODER init_rencoder(const t_itr begin, const t_itr end, const double b
     auto&& t = std::forward_as_tuple(args...);
     auto queries_temp = std::get<0>(t);
     auto klen = 64;
-    auto queries = std::vector<std::pair<uint64_t, uint64_t>>(queries_temp.size());
-    std::transform(queries_temp.begin(), queries_temp.end(), queries.begin(), [](auto x) {
-        auto [left, right, result] = x;
-        return std::make_pair(left, right);
-    });
 
     if (VERSION == "REncoderSE" || VERSION == "REncoderSS") {
+        auto queries = std::vector<std::pair<uint64_t, uint64_t>>(queries_temp.size());
+        std::transform(queries_temp.begin(), queries_temp.end(), queries.begin(), [](auto x) {
+            auto [left, right, result] = x;
+            return std::make_pair(left, right);
+        });
+        std::sort(queries.begin(), queries.end());
         start_timer(modelling_time);
         SetBeginEndLevel(keys, queries);
         stop_timer(modelling_time);

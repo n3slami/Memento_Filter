@@ -35,6 +35,9 @@
     auto t_end_##t = timer::now(); \
     test_out.add_measure(#t, std::chrono::duration_cast<std::chrono::milliseconds>(t_end_##t - t_start_##t).count());
 
+auto query_shuffle_s = 1380;
+#define query_shuffle_seed query_shuffle_s++
+
 auto test_out = TestOutput();
 
 auto test_verbose = true;
@@ -149,6 +152,9 @@ std::tuple<InputKeys<uint64_t>, Workload<uint64_t>, double> read_parser_argument
         print_csv = true;
         csv_file = *arg_csv;
     }
+
+    std::mt19937 shuffle_gen(query_shuffle_seed);
+    std::shuffle(queries.begin(), queries.end(), shuffle_gen);
 
     std::cout << "[+] nkeys=" << keys.size() << ", nqueries=" << queries.size() << std::endl;
     std::cout << "[+] keys and queries loaded, starting test." << std::endl;
