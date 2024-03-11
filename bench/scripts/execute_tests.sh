@@ -32,15 +32,7 @@ SCRIPT_DIR_PATH=$(dirname -- "$( readlink -f -- "$0"; )")
 
 OUT_PATH=./results
 
-mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
-if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ; then
-  echo "[!!] b_tree_test test failed"
-  exit 1
-fi
-echo "[!!] b_tree_test test executed successfully"
-
-exit 0
-
+: '
 mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test expansion $WORKLOADS_PATH/expansion_test $MEMENTO_BUILD_PATH ; then
   echo "[!!] expansion_test test failed"
@@ -48,7 +40,17 @@ if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test expansion $WORKLOADS_PATH/exp
 fi
 echo "[!!] expansion_test test executed successfully"
 
-:'
+exit 0
+'
+
+mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
+if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ; then
+  echo "[!!] b_tree_test test failed"
+  exit 1
+fi
+echo "[!!] b_tree_test test executed successfully"
+
+: '
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test corr $WORKLOADS_PATH/corr_test $MEMENTO_BUILD_PATH ; then
   echo "[!!] corr_test test failed"
   exit 1

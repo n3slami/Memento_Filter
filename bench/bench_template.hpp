@@ -39,7 +39,7 @@
     test_out.add_measure(#t, std::chrono::duration_cast<std::chrono::milliseconds>(t_end_##t - t_start_##t).count());
 
 const uint32_t expansion_count = 6;
-const uint32_t expansion_timeout = 1800000;
+const uint32_t expansion_timeout = 360000;
 
 auto test_out = TestOutput();
 

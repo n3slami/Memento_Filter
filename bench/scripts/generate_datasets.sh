@@ -66,31 +66,28 @@ generate_constr_time_test() {
 }
 
 generate_expansion_test() {
-  i=0
-  x=0.0
   expansion_count=6
 
-  while [ $i -le 5 ]
-  do
-    $WORKLOAD_GEN_PATH --mixed --kdist kuniform --qdist qcorrelated --corr-degree ${x} --expansion-count ${expansion_count}
-    mv kuniform/ kuniform_${i}/
-    $WORKLOAD_GEN_PATH --mixed --kdist knormal --qdist qcorrelated --corr-degree ${x} --expansion-count ${expansion_count}
-    mv knormal/ knormal_${i}/
-    x=$(echo $x + 0.2 | bc)
-    i=$(($i + 1))
-  done
+  $WORKLOAD_GEN_PATH --mixed --kdist kuniform --qdist quniform --expansion-count ${expansion_count}
+  mv kuniform/ kuniform_0/
+  $WORKLOAD_GEN_PATH --mixed --kdist kuniform --qdist qcorrelated --corr-degree 0.2 --expansion-count ${expansion_count}
+  mv kuniform/ kuniform_2/
 }
 
 generate_b_tree_test() {
   expansion_count=3
 
-  $WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 1000000 --qdist quniform -q 200000 --range-size 0 5 --expansion-count ${expansion_count}
-  #$WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 1000000 --qdist qnormal -q 500000  --range-size 0 5 --expansion-count ${expansion_count}
-  #$WORKLOAD_GEN_PATH --mixed --kdist knormal -n 1000000 --qdist quniform -q 500000  --range-size 0 5 --expansion-count ${expansion_count}
-  $WORKLOAD_GEN_PATH --mixed --kdist knormal -n 1000000 --qdist qnormal -q 200000 --range-size 0 5 --expansion-count ${expansion_count}
+  $WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 200000000 --qdist quniform -q 10000000 --range-size 0 5 --true-frac 0.7 --expansion-count ${expansion_count}
+  mv kuniform/ kuniform_7/
+  $WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 200000000 --qdist quniform -q 10000000 --range-size 0 5 --true-frac 0.0 --expansion-count ${expansion_count}
+  mv kuniform/ kuniform_0/
+  $WORKLOAD_GEN_PATH --mixed --kdist knormal -n 200000000 --qdist qnormal -q 10000000 --range-size 0 5 --true-frac 0.7 --expansion-count ${expansion_count}
+  mv knormal/ knormal_7/
+  $WORKLOAD_GEN_PATH --mixed --kdist knormal -n 200000000 --qdist qnormal -q 10000000 --range-size 0 5 --true-frac 0.0 --expansion-count ${expansion_count}
+  mv knormal/ knormal_0/
 }
 
-:'
+: '
 mkdir -p $OUT_PATH/expansion_test && cd $OUT_PATH/expansion_test || exit 1
 if ! generate_expansion_test ; then
   echo "[!!] expansion_test generation failed"

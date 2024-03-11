@@ -72,8 +72,8 @@ def execute_test(ds, keys_path, data, path_csv):
             command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
 
         if "b_tree" in str(ds_benchmark_executables[ds]):
-            TOTAL_BUFFER_POOL_SIZE_MB = 3
-            B_TREE_N_KEYS = 1000000
+            TOTAL_BUFFER_POOL_SIZE_MB = 489
+            B_TREE_N_KEYS = 200000000
             filter_size = int(TOTAL_BUFFER_POOL_SIZE_MB - B_TREE_N_KEYS * arg / 8 / 1024 / 1024)
             buffer_pool_size_mb = filter_size if ds != "none" else TOTAL_BUFFER_POOL_SIZE_MB
             command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --buffer_pool_size {buffer_pool_size_mb}MB --csv {path_csv}'

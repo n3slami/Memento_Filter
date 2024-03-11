@@ -44,6 +44,7 @@ auto default_n_queries = 10'000'000;
 auto default_range_size = std::vector<int>{0, 5, 10}; /* {point queries, 2^{5}, 2^{10}}*/
 auto default_corr_degree = 0.8;
 auto default_expansion_count = 0;
+auto default_true_frac = 0.0;
 
 InputKeys<uint64_t> keys_from_file = InputKeys<uint64_t>();
 
@@ -280,8 +281,8 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
 Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<uint64_t> &keys,
                                           uint64_t n_queries, uint64_t min_range, uint64_t max_range,
                                           const double corr_degree, const long double stddev,
-                                          const uint32_t expansion_count) {
-    std::mt19937 shuffle_gen(seed);
+                                          const uint32_t expansion_count, const float true_frac) {
+    std::mt19937 shuffle_gen(seed - 1);
     const uint64_t n_keys = keys.size();
     std::shuffle(keys.begin(), keys.end(), shuffle_gen);
     std::vector<std::tuple<uint64_t, uint64_t, bool>> q;
@@ -296,12 +297,12 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
     {
         middle_points.reserve(n_queries * (expansion_count + 1));
         for (uint32_t expansion = 0; expansion <= expansion_count; expansion++) {
-            const uint64_t N = (n_keys >> expansion);
+            const uint64_t N = (n_keys >> (expansion_count - expansion));
             auto i = 0;
             while (i < n_queries) {
                 auto n = std::min<uint64_t>(N, n_queries - i);
-                std::copy(keys.begin() + i + (expansion * n_queries),
-                          keys.begin() + i + (expansion * n_queries) + n,
+                std::copy(keys.begin() + (i % N),
+                          keys.begin() + (i % N) + n,
                           middle_points.begin() + i + (expansion * n_queries));
                 i += n;
             }
@@ -312,11 +313,17 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
     std::mt19937 gen_range(seed);
     std::uniform_int_distribution<uint64_t> range_distr(std::max(min_range, 1UL), max_range);
 
-    std::mt19937 gen_corr(seed);
+    std::mt19937 gen_corr(seed + 1);
     std::uniform_int_distribution<uint64_t> corr_distr(1, (1UL << std::lround(30 * (1 - corr_degree))));
 
-    std::mt19937 gen_pos_middle_points(seed);
+    std::mt19937 gen_pos_middle_points(seed + 2);
     std::uniform_int_distribution<int> pos_distr(1, middle_points.size() - 1);
+
+    std::mt19937 gen_random_offset(seed + 3);
+    std::uniform_int_distribution<uint64_t> rand_offset_distr(0, max_range - 1);
+
+    std::mt19937 gen_random_keys(seed + 4);
+
     auto n_iterations = 0;
     auto i = 0;
     std::set<uint64_t> inclusion_checker;
@@ -328,6 +335,16 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
             inclusion_checker.insert(keys[i]);
         }
         prev_N = N;
+
+        std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
+        while (q.size() < true_frac * n_queries) {
+            auto point = keys[rand_keys_distr(gen_random_keys)];
+            auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+            std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
+            rand_offset_distr.param(d);
+            auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
+            q.emplace_back(left, right, true);
+        }
 
         while (q.size() < n_queries) {
             if (++n_iterations >= 100 * n_queries) {
@@ -378,12 +395,23 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
     }
 
     for (uint32_t expansion = 0; expansion < expansion_count; expansion++) {
+        uint64_t N;
         if (expansion) {
-            const uint64_t N = (n_keys >> (expansion_count - expansion - 1));
+            N = (n_keys >> (expansion_count - expansion - 1));
             for (uint64_t i = prev_N; i < N; i++) {
                 inclusion_checker.insert(keys[i]);
             }
             prev_N = N;
+        }
+
+        std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
+        while (q.size() < n_queries * (expansion + 1) + true_frac * n_queries) {
+            auto point = keys[rand_keys_distr(gen_random_keys)];
+            auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+            std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
+            rand_offset_distr.param(d);
+            auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
+            q.emplace_back(left, right, true);
         }
 
         while (q.size() < n_queries * (expansion + 2)) {
@@ -446,9 +474,9 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
 void generate_synth_datasets(const std::vector<std::string> &kdist, const std::vector<std::string> &qdist,
                              uint64_t n_keys, uint64_t n_queries,
                              std::vector<int> range_size_list, // uint64_t min_range, uint64_t max_range,
-                             const double corr_degree = 0.8,
-                             const long double stddev = (long double) UINT64_MAX * 0.1,
-                             const uint32_t expansion_count = 0) {
+                             const double corr_degree=0.8,
+                             const long double stddev=(long double) UINT64_MAX * 0.1,
+                             const uint32_t expansion_count=0, const double true_frac=0.0) {
     std::vector<uint64_t> ranges(range_size_list.size());
     std::transform(range_size_list.begin(), range_size_list.end(), ranges.begin(), [](auto v) {
         return (1ULL << v);
@@ -463,6 +491,8 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
     std::copy(qdist.begin(), qdist.end(), std::ostream_iterator<std::string>(std::cout, ","));
     std::cout << std::endl;
     std::cout << "[+] corr_degree=" << corr_degree << std::endl;
+    std::cout << "[+] true_frac=" << expansion_count << std::endl;
+    std::cout << "[+] expansion_count=" << expansion_count << std::endl;
 
 
     for (const auto& k: kdist) {
@@ -474,7 +504,7 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
             for (auto i = 0; i < ranges.size(); i++) {
                 auto range_size = ranges[i];
                 auto queries = (q == "qtrue") ? generate_true_queries(keys, n_queries, range_size) :
-                                    (expansion_count ? generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count)
+                                    (expansion_count ? generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count, true_frac)
                                                      : generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev));
                 std::cout << std::endl
                           << "[+] generated `" << q << "_" << range_size_list[i] << "` queries" << std::endl;
@@ -499,8 +529,8 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
                 auto range_size_min = 1;
 
                 auto queries = (q == "qtrue") ? generate_true_queries(keys, n_queries, range_size) :
-                                    (expansion_count ? generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count)
-                                                     : generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev));
+                                    (expansion_count ? generate_synth_queries(q, keys, n_queries, range_size_min, range_size, corr_degree, stddev, expansion_count, true_frac)
+                                                     : generate_synth_queries(q, keys, n_queries, range_size_min, range_size, corr_degree, stddev));
 
                 auto queries_path = root_path + std::to_string(range_size_list.back()) + "M_" + q + "/"; /* mixed */
                 if (!create_dir_recursive(queries_path))
@@ -699,6 +729,13 @@ int main(int argc, char const *argv[]) {
             .default_value(default_corr_degree)
             .scan<'g', double>();
 
+    parser.add_argument("--true-frac")
+            .help("Number of expansions in the workload")
+            .nargs(1)
+            .required()
+            .default_value((double) default_true_frac)
+            .scan<'g', double>();
+
     parser.add_argument("--expansion-count")
             .help("Number of expansions in the workload")
             .nargs(1)
@@ -733,6 +770,7 @@ int main(int argc, char const *argv[]) {
     auto n_queries = parser.get<uint64_t>("-q");
     auto ranges_int = parser.get<std::vector<int>>("--range-size");
     auto corr_degree = parser.get<double>("--corr-degree");
+    auto true_frac = parser.get<double>("--true-frac");
     auto expansion_count = parser.get<uint64_t>("--expansion-count");
 
     allow_true_queries = parser.get<bool>("--allow-true");
@@ -756,7 +794,7 @@ int main(int argc, char const *argv[]) {
     else if (expansion_count == 0)
         generate_synth_datasets(kdist, qdist, n_keys, n_queries, ranges_int, corr_degree);
     else 
-        generate_synth_datasets(kdist, qdist, n_keys, n_queries, ranges_int, corr_degree, (long double) UINT64_MAX * 0.1, expansion_count);
+        generate_synth_datasets(kdist, qdist, n_keys, n_queries, ranges_int, corr_degree, (long double) UINT64_MAX * 0.1, expansion_count, true_frac);
 
     return 0;
 }
