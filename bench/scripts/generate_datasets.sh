@@ -76,25 +76,19 @@ generate_expansion_test() {
 
 generate_b_tree_test() {
   expansion_count=3
+  true_frac_count=10
 
-  $WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 200000000 --qdist quniform -q 10000000 --range-size 0 5 --true-frac 0.7 --expansion-count ${expansion_count}
-  mv kuniform/ kuniform_7/
-  $WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 200000000 --qdist quniform -q 10000000 --range-size 0 5 --true-frac 0.0 --expansion-count ${expansion_count}
-  mv kuniform/ kuniform_0/
-  $WORKLOAD_GEN_PATH --mixed --kdist knormal -n 200000000 --qdist qnormal -q 10000000 --range-size 0 5 --true-frac 0.7 --expansion-count ${expansion_count}
-  mv knormal/ knormal_7/
-  $WORKLOAD_GEN_PATH --mixed --kdist knormal -n 200000000 --qdist qnormal -q 10000000 --range-size 0 5 --true-frac 0.0 --expansion-count ${expansion_count}
-  mv knormal/ knormal_0/
+  #$WORKLOAD_GEN_PATH --mixed --kdist kuniform -n 100000000 --qdist quniform -q 5000000 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
+  #$WORKLOAD_GEN_PATH --mixed --kdist knormal -n 100000000 --qdist qnormal -q 5000000 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
+  $WORKLOAD_GEN_PATH --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 -q 10000000 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
 }
 
-: '
 mkdir -p $OUT_PATH/expansion_test && cd $OUT_PATH/expansion_test || exit 1
 if ! generate_expansion_test ; then
   echo "[!!] expansion_test generation failed"
   exit 1
 fi
 echo "[!!] expansion_test dataset generated"
-'
 
 mkdir -p $OUT_PATH/b_tree_test && cd $OUT_PATH/b_tree_test || exit 1
 if ! generate_b_tree_test ; then

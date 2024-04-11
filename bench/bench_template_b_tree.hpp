@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <iostream>
 #include <argparse/argparse.hpp>
+#include <string>
 #include <wiredtiger.h>
 
 #include "bench_utils.hpp"
@@ -41,16 +42,18 @@
     test_out.add_measure(#t, std::chrono::duration_cast<std::chrono::milliseconds>(t_end_##t - t_start_##t).count());
 
 const uint32_t expansion_count = 3;
+const uint32_t true_frac_cnt = 10;
 
 auto test_out = TestOutput();
 
 static const char *wt_home = "./wt_database_home";
 const uint32_t max_schema_len = 128;
 const uint32_t max_conn_config_len = 128;
-const int default_key_len = 128, default_val_len = 128;
-const std::string default_buffer_pool_size = "1GB";
+const int default_key_len = 8, default_val_len = 504;
+const std::string default_buffer_pool_size = "1024MB";
 uint64_t key_len, val_len;
 std::string buffer_pool_size = default_buffer_pool_size;
+uint64_t buffer_pool_size_mb = 0;
 
 static uint64_t optimizer_hack = 0;
 
@@ -100,7 +103,8 @@ void experiment(InitFun init_f, RangeFun range_f, InsertFun insert_f, SizeFun si
     char connection_config[max_conn_config_len];
 
     sprintf(table_schema, "key_format=%lds,value_format=%lds", key_len, val_len);
-    sprintf(connection_config, "create,statistics=(all),direct_io=[data],cache_size=%s", buffer_pool_size.c_str());
+    uint64_t current_buffer_pool_size_mb = buffer_pool_size_mb;
+    sprintf(connection_config, "create,statistics=(all),direct_io=[data],cache_size=%ldMB", current_buffer_pool_size_mb);
 
     if (std::filesystem::exists(wt_home))
         std::filesystem::remove_all(wt_home);
@@ -110,12 +114,13 @@ void experiment(InitFun init_f, RangeFun range_f, InsertFun insert_f, SizeFun si
     error_check(conn->open_session(conn, NULL, NULL, &session));
     error_check(session->create(session, "table:access", table_schema));
     error_check(session->open_cursor(session, "table:access", NULL, NULL, &cursor));
-    std::cout << "[+] WiredTiger initialized" << std::endl;
+    std::cerr << "[+] WiredTiger initialized" << std::endl;
 
     SimpleBigInt big_int_k(key_len), big_int_v(val_len);
     SimpleBigInt big_int_l(key_len), big_int_r(key_len);
     const uint64_t N = keys.size();
-    const uint64_t n_queries = queries.size() / (expansion_count + 1);
+    const uint64_t n_queries = queries.size() / ((expansion_count + 1) * (true_frac_cnt + 1));
+    std::cerr << "[+] n_queries=" << n_queries << std::endl;
     uint64_t current_dataset_size = N >> expansion_count;
     error_check(cursor->reset(cursor));
     for (uint64_t i = 0; i < current_dataset_size; i++) {
@@ -126,6 +131,15 @@ void experiment(InitFun init_f, RangeFun range_f, InsertFun insert_f, SizeFun si
     auto f = init_f(keys.begin(), keys.begin() + current_dataset_size, param, args...);
 
     {
+        error_check(conn->close(conn, NULL)); /* Close all handles. */
+        current_buffer_pool_size_mb = ((buffer_pool_size_mb << (20 - expansion_count)) - size_f(f)) >> 20;
+        sprintf(connection_config, "statistics=(all),direct_io=[data],cache_size=%ldMB", current_buffer_pool_size_mb);
+        error_check(wiredtiger_open(wt_home, NULL, connection_config, &conn));
+        error_check(conn->open_session(conn, NULL, NULL, &session));
+        error_check(session->create(session, "table:access", table_schema));
+        error_check(session->open_cursor(session, "table:access", NULL, NULL, &cursor));
+        std::cerr << "[+] reinit cache size to " << current_buffer_pool_size_mb << "MB" << std::endl;
+
         std::string expansion_str = "0";
         auto size = size_f(f);
         std::string name = "size_";
@@ -135,51 +149,69 @@ void experiment(InitFun init_f, RangeFun range_f, InsertFun insert_f, SizeFun si
         name += expansion_str;
         test_out.add_measure(name, TO_BPK(size, current_dataset_size));
 
-        auto fp = 0, fn = 0;
-        auto t_start_query_time = timer::now();
-        std::cerr << "START QUERY PROCESS" << std::endl;
-        for (uint64_t i = 0; i < n_queries; i++) {
-            const auto [left, right, original_result] = queries[i];
-            big_int_l = left;
-            big_int_r = right;
+        for (uint32_t true_frac_i = 0; true_frac_i <= true_frac_cnt; true_frac_i++) {
+            std::string true_frac_str = std::to_string(true_frac_i);
 
-            bool query_result = range_f(f, (char *) big_int_l.num, (char *) big_int_r.num);
-            if (query_result) {
-                fetch_range_from_db(cursor, big_int_l, big_int_r);
-                fp += !original_result;
+            auto fp = 0, fn = 0;
+            auto t_start_query_time = timer::now();
+            std::cerr << "START QUERY PROCESS true_frac_i=" << true_frac_i << std::endl;
+            for (uint64_t i = true_frac_i * n_queries; i < (true_frac_i + 1) * n_queries; i++) {
+                auto [left, right, original_result] = queries[i];
+
+                // Short-term fix, just for now
+                if (right < left)
+                    right = left;
+
+                big_int_l = left;
+                big_int_r = right;
+
+                bool query_result = range_f(f, (char *) big_int_l.num, (char *) big_int_r.num);
+                if (query_result) {
+                    fetch_range_from_db(cursor, big_int_l, big_int_r);
+                    fp += !original_result;
+                }
+                else if (!query_result && original_result)
+                {
+                    std::cerr << "[!] alert, found false negative!" << std::endl;
+                    fn++;
+                }
             }
-            else if (!query_result && original_result)
-            {
-                std::cerr << "[!] alert, found false negative!" << std::endl;
-                fn++;
-            }
+            auto t_end_query_time = timer::now();
+            std::cerr << "DONE WITH QUERY PROCESS " << std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count() << std::endl;
+            name = "query_time_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count());
+
+            name = "fpr_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, ((double)fp / n_queries));
+            name = "false_neg_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, fn);
+            name = "n_keys_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, current_dataset_size);
+            name = "n_queries_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, n_queries);
+            name = "false_positives_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, fp);
         }
-        auto t_end_query_time = timer::now();
-        std::cerr << "DONE WITH QUERY PROCESS " << std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count() << std::endl;
-        name = "query_time_";
-        name += expansion_str;
-        test_out.add_measure(name,
-                std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count());
-
-        name = "fpr_";
-        name += expansion_str;
-        test_out.add_measure(name, ((double)fp / n_queries));
-        name = "false_neg_";
-        name += expansion_str;
-        test_out.add_measure(name, fn);
-        name = "n_keys_";
-        name += expansion_str;
-        test_out.add_measure(name, current_dataset_size);
-        name = "n_queries_";
-        name += expansion_str;
-        test_out.add_measure(name, n_queries);
-        name = "false_positives_";
-        name += expansion_str;
-        test_out.add_measure(name, fp);
     }
 
-    std::cout << "[+] data structure constructed in " << test_out["build_time"] << "ms, starting queries" << std::endl;
+    std::cerr << "[+] data structure constructed in " << test_out["build_time"] << "ms, starting queries" << std::endl;
     for (uint32_t expansion = 1; expansion <= expansion_count; expansion++) {
+        error_check(conn->close(conn, NULL)); /* Close all handles. */
+        current_buffer_pool_size_mb = ((buffer_pool_size_mb << (20 - expansion_count + expansion)) - size_f(f)) >> 20;
+        sprintf(connection_config, "statistics=(all),direct_io=[data],cache_size=%ldMB", current_buffer_pool_size_mb);
+        error_check(wiredtiger_open(wt_home, NULL, connection_config, &conn));
+        error_check(conn->open_session(conn, NULL, NULL, &session));
+        error_check(session->create(session, "table:access", table_schema));
+        error_check(session->open_cursor(session, "table:access", NULL, NULL, &cursor));
+        std::cerr << "[+] reinit cache size to " << current_buffer_pool_size_mb << "MB" << std::endl;
+
         std::string expansion_str = std::to_string(expansion);
         auto size = size_f(f);
         std::string name = "size_";
@@ -209,49 +241,58 @@ void experiment(InitFun init_f, RangeFun range_f, InsertFun insert_f, SizeFun si
                                                              : N);
         std::cerr << "DONE WITH EXPANSION PROCESS --- current_dataset_size=" << current_dataset_size << " vs. N=" << N << std::endl;
 
-        auto fp = 0, fn = 0;
-        auto t_start_query_time = timer::now();
-        std::cerr << "START QUERY PROCESS" << std::endl;
-        for (uint64_t i = expansion * n_queries; i < (expansion + 1) * n_queries; i++) {
-            const auto [left, right, original_result] = queries[i];
-            big_int_l = left;
-            big_int_r = right;
+        for (uint32_t true_frac_i = 0; true_frac_i <= true_frac_cnt; true_frac_i++) {
+            std::string true_frac_str = std::to_string(true_frac_i);
 
-            bool query_result = range_f(f, (char *) big_int_l.num, (char *) big_int_r.num);
-            if (query_result) {
-                fetch_range_from_db(cursor, big_int_l, big_int_r);
-                fp += !original_result;
+            auto fp = 0, fn = 0;
+            auto t_start_query_time = timer::now();
+            std::cerr << "START QUERY PROCESS true_frac_i=" << true_frac_i << std::endl;
+            for (uint64_t i = expansion * (true_frac_cnt + 1) * n_queries + true_frac_i * n_queries;
+                    i < expansion * (true_frac_cnt + 1) * n_queries + (true_frac_i + 1) * n_queries; i++) {
+                auto [left, right, original_result] = queries[i];
+
+                // Short-term fix, just for now
+                if (right < left)
+                    right = left;
+
+                big_int_l = left;
+                big_int_r = right;
+
+                bool query_result = range_f(f, (char *) big_int_l.num, (char *) big_int_r.num);
+                if (query_result) {
+                    fetch_range_from_db(cursor, big_int_l, big_int_r);
+                    fp += !original_result;
+                }
+                else if (!query_result && original_result)
+                {
+                    std::cerr << "[!] alert, found false negative!" << std::endl;
+                    fn++;
+                }
             }
-            else if (!query_result && original_result)
-            {
-                std::cerr << "[!] alert, found false negative!" << std::endl;
-                fn++;
-            }
+            auto t_end_query_time = timer::now();
+            std::cerr << "DONE WITH QUERY PROCESS " << std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count() << std::endl;
+            name = "query_time_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count());
+
+            name = "fpr_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, ((double)fp / n_queries));
+            name = "false_neg_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, fn);
+            name = "n_keys_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, current_dataset_size);
+            name = "n_queries_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, n_queries);
+            name = "false_positives_";
+            name = name + expansion_str + "_frac_" + true_frac_str;
+            test_out.add_measure(name, fp);
         }
-        auto t_end_query_time = timer::now();
-        std::cerr << "DONE WITH QUERY PROCESS " << std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count() << std::endl;
-        name = "query_time_";
-        name += expansion_str;
-        test_out.add_measure(name,
-                std::chrono::duration_cast<std::chrono::milliseconds>(t_end_query_time - t_start_query_time).count());
-
-        name = "fpr_";
-        name += expansion_str;
-        test_out.add_measure(name, ((double)fp / n_queries));
-        name = "false_neg_";
-        name += expansion_str;
-        test_out.add_measure(name, fn);
-        name = "n_keys_";
-        name += expansion_str;
-        test_out.add_measure(name, current_dataset_size);
-        name = "n_queries_";
-        name += expansion_str;
-        test_out.add_measure(name, n_queries);
-        name = "false_positives_";
-        name += expansion_str;
-        test_out.add_measure(name, fp);
     }
-
     error_check(conn->close(conn, NULL)); /* Close all handles. */
 }
 
@@ -313,6 +354,7 @@ std::tuple<InputKeys<uint64_t>, Workload<uint64_t>, double> read_parser_argument
     auto files = parser.get<std::vector<std::string>>("workload");
 
     buffer_pool_size = parser.get<std::string>("buffer_pool_size");
+    buffer_pool_size_mb = std::stoll(buffer_pool_size.substr(0, buffer_pool_size.size() - 1));
     key_len = parser.get<int>("key_len");
     val_len = parser.get<int>("val_len");
 

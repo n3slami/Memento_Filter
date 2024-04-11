@@ -44,7 +44,7 @@ auto default_n_queries = 10'000'000;
 auto default_range_size = std::vector<int>{0, 5, 10}; /* {point queries, 2^{5}, 2^{10}}*/
 auto default_corr_degree = 0.8;
 auto default_expansion_count = 0;
-auto default_true_frac = 0.0;
+auto default_true_frac_count = 0;
 
 InputKeys<uint64_t> keys_from_file = InputKeys<uint64_t>();
 
@@ -89,7 +89,8 @@ void save_queries(Workload<uint64_t> &work, const std::string &l_keys, const std
  * @brief Given a point and a range size, returns the range [point, point + range_size - 1]
  */
 auto point_to_range = [](auto point, auto range_size) {
-    return std::make_pair(point, (point + range_size) - 1);
+    return std::make_pair(point, (((1ULL << 63) - 1) - point < range_size - 1 ? ((1ULL << 63) - 1) 
+                                                                              : point + range_size - 1));
 };
 
 void printProgress(double percentage) {
@@ -281,7 +282,8 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
 Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<uint64_t> &keys,
                                           uint64_t n_queries, uint64_t min_range, uint64_t max_range,
                                           const double corr_degree, const long double stddev,
-                                          const uint32_t expansion_count, const float true_frac) {
+                                          const uint32_t expansion_count, const uint64_t true_frac_cnt_) {
+    const uint64_t true_frac_cnt = true_frac_cnt_ + 1;
     std::mt19937 shuffle_gen(seed - 1);
     const uint64_t n_keys = keys.size();
     std::shuffle(keys.begin(), keys.end(), shuffle_gen);
@@ -336,15 +338,195 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
         }
         prev_N = N;
 
-        std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
-        while (q.size() < true_frac * n_queries) {
-            auto point = keys[rand_keys_distr(gen_random_keys)];
-            auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
-            std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
-            rand_offset_distr.param(d);
-            auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
-            q.emplace_back(left, right, true);
+        for (uint32_t true_frac_i = 0; true_frac_i < true_frac_cnt; true_frac_i++) {
+            const double true_frac = 1.0 * true_frac_i / (true_frac_cnt - 1);
+
+            std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
+            while (q.size() < true_frac_i * n_queries + true_frac * n_queries) {
+                auto point = keys[rand_keys_distr(gen_random_keys)];
+                auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+                std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
+                rand_offset_distr.param(d);
+                auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
+                q.emplace_back(left, right, true);
+            }
+
+            while (q.size() < (true_frac_i + 1) * n_queries) {
+                if (++n_iterations >= 100 * n_queries) {
+                    std::string in;
+                    std::cout << std::endl
+                        << "application seems stuck, close it or save less query? (y/n/save) ";
+                    std::cin >> in;
+                    if (in == "save")
+                        break;
+                    else if (in == "y")
+                        throw std::runtime_error("error: timeout for the workload generation");
+                    n_iterations = 0;
+                }
+
+                auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+
+                uint64_t left, right;
+
+                if (qdist == "quniform") {
+                    std::tie(left, right) = point_to_range(middle_points[i++], range_size);
+                    i -= (i >= middle_points.size() ? middle_points.size() : 0);
+                }
+                else if (qdist == "qnormal")
+                    std::tie(left, right) = point_to_range(middle_points[pos_distr(gen_pos_middle_points)], range_size);
+                else // qdist == qcorrelated
+                {
+                    auto p = middle_points[q.size()] + corr_distr(gen_corr);
+                    std::tie(left, right) = point_to_range(p, range_size);
+                }
+                if (std::numeric_limits<uint64_t>::max() - left < range_size)
+                    continue;
+
+                bool q_result;
+                if (range_size == 1) {
+                    q_result = inclusion_checker.find(left) != inclusion_checker.end();
+                }
+                else {
+                    auto it = inclusion_checker.lower_bound(left);
+                    q_result = it != inclusion_checker.end() && *it <= right;
+                }
+
+                if (!allow_true_queries && q_result)
+                    continue;
+
+                q.push_back({left, right, q_result});
+                printProgress(((double) q.size()) / (true_frac_cnt * (expansion_count + 1) * n_queries));
+            }
         }
+    }
+
+    for (uint32_t expansion = 0; expansion < expansion_count; expansion++) {
+        uint64_t N = (n_keys >> (expansion_count - expansion - 1));
+        if (expansion) {
+            for (uint64_t i = prev_N; i < N; i++) {
+                inclusion_checker.insert(keys[i]);
+            }
+            prev_N = N;
+        }
+
+        for (uint32_t true_frac_i = 0; true_frac_i < true_frac_cnt; true_frac_i++) {
+            const double true_frac = 1.0 * true_frac_i / (true_frac_cnt - 1);
+
+            std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
+            while (q.size() < n_queries * (expansion + 1) * true_frac_cnt + true_frac_i * n_queries + true_frac * n_queries) {
+                auto point = keys[rand_keys_distr(gen_random_keys)];
+                auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+                std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
+                rand_offset_distr.param(d);
+                auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
+                q.emplace_back(left, right, true);
+            }
+
+            while (q.size() < n_queries * (expansion + 1) * true_frac_cnt + (true_frac_i + 1) * n_queries) {
+                if (++n_iterations >= 300 * n_queries) {
+                    std::string in;
+                    std::cout << std::endl
+                        << "application seems stuck, close it or save less query? (y/n/save) ";
+                    std::cin >> in;
+                    if (in == "save")
+                        break;
+                    else if (in == "y")
+                        throw std::runtime_error("error: timeout for the workload generation");
+                    n_iterations = 0;
+                }
+
+                auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+
+                uint64_t left, right;
+
+                if (qdist == "quniform") {
+                    std::tie(left, right) = point_to_range(middle_points[i++], range_size);
+                    i -= (i >= middle_points.size() ? middle_points.size() : 0);
+                }
+                else if (qdist == "qnormal")
+                    std::tie(left, right) = point_to_range(middle_points[pos_distr(gen_pos_middle_points)], range_size);
+                else // qdist == qcorrelated
+                {
+                    auto p = middle_points[q.size()] + corr_distr(gen_corr);
+                    std::tie(left, right) = point_to_range(p, range_size);
+                }
+                if (std::numeric_limits<uint64_t>::max() - left < range_size)
+                    continue;
+
+                bool q_result;
+                if (range_size == 1) {
+                    q_result = inclusion_checker.find(left) != inclusion_checker.end();
+                }
+                else {
+                    auto it = inclusion_checker.lower_bound(left);
+                    q_result = it != inclusion_checker.end() && *it <= right;
+                }
+
+                if (!allow_true_queries && q_result)
+                    continue;
+
+                q.push_back({left, right, q_result});
+                printProgress(((double) q.size()) / (true_frac_cnt * (expansion_count + 1) * n_queries));
+            }
+        }
+    }
+
+    return {q.begin(), q.end()};
+}
+
+
+Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<uint64_t> &keys,
+                                          uint64_t n_queries, uint64_t min_range, uint64_t max_range,
+                                          const double corr_degree, const long double stddev,
+                                          const uint32_t expansion_count) {
+    std::mt19937 shuffle_gen(seed - 1);
+    const uint64_t n_keys = keys.size();
+    std::shuffle(keys.begin(), keys.end(), shuffle_gen);
+    std::vector<std::tuple<uint64_t, uint64_t, bool>> q;
+    std::vector<uint64_t> middle_points;
+    if (qdist == "qnormal")
+        middle_points = generate_keys_normal(10 * n_queries, stddev);
+    else if (qdist == "quniform") {
+        middle_points = generate_keys_uniform(3 * n_queries);
+        std::shuffle(middle_points.begin(), middle_points.end(), shuffle_gen);
+    }
+    else // qdist == "qcorrelated"
+    {
+        middle_points.reserve(n_queries * (expansion_count + 1));
+        for (uint32_t expansion = 0; expansion <= expansion_count; expansion++) {
+            const uint64_t N = (n_keys >> (expansion_count - expansion));
+            auto i = 0;
+            while (i < n_queries) {
+                auto n = std::min<uint64_t>(N, n_queries - i);
+                std::copy(keys.begin() + (i % N),
+                          keys.begin() + (i % N) + n,
+                          middle_points.begin() + i + (expansion * n_queries));
+                i += n;
+            }
+        }
+    }
+    std::sort(keys.begin(), keys.begin() + (n_keys >> expansion_count));
+
+    std::mt19937 gen_range(seed);
+    std::uniform_int_distribution<uint64_t> range_distr(std::max(min_range, 1UL), max_range);
+
+    std::mt19937 gen_corr(seed + 1);
+    std::uniform_int_distribution<uint64_t> corr_distr(1, (1UL << std::lround(30 * (1 - corr_degree))));
+
+    std::mt19937 gen_pos_middle_points(seed + 2);
+    std::uniform_int_distribution<int> pos_distr(1, middle_points.size() - 1);
+
+    auto n_iterations = 0;
+    auto i = 0;
+    std::set<uint64_t> inclusion_checker;
+    uint64_t prev_N = 0;
+
+    {
+        const uint64_t N = (n_keys >> expansion_count);
+        for (uint64_t i = prev_N; i < N; i++) {
+            inclusion_checker.insert(keys[i]);
+        }
+        prev_N = N;
 
         while (q.size() < n_queries) {
             if (++n_iterations >= 100 * n_queries) {
@@ -395,23 +577,12 @@ Workload<uint64_t> generate_synth_queries(const std::string& qdist, InputKeys<ui
     }
 
     for (uint32_t expansion = 0; expansion < expansion_count; expansion++) {
-        uint64_t N;
         if (expansion) {
-            N = (n_keys >> (expansion_count - expansion - 1));
+            const uint64_t N = (n_keys >> (expansion_count - expansion - 1));
             for (uint64_t i = prev_N; i < N; i++) {
                 inclusion_checker.insert(keys[i]);
             }
             prev_N = N;
-        }
-
-        std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
-        while (q.size() < n_queries * (expansion + 1) + true_frac * n_queries) {
-            auto point = keys[rand_keys_distr(gen_random_keys)];
-            auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
-            std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
-            rand_offset_distr.param(d);
-            auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
-            q.emplace_back(left, right, true);
         }
 
         while (q.size() < n_queries * (expansion + 2)) {
@@ -476,7 +647,7 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
                              std::vector<int> range_size_list, // uint64_t min_range, uint64_t max_range,
                              const double corr_degree=0.8,
                              const long double stddev=(long double) UINT64_MAX * 0.1,
-                             const uint32_t expansion_count=0, const double true_frac=0.0) {
+                             const uint32_t expansion_count=0, const uint64_t true_frac_cnt=0) {
     std::vector<uint64_t> ranges(range_size_list.size());
     std::transform(range_size_list.begin(), range_size_list.end(), ranges.begin(), [](auto v) {
         return (1ULL << v);
@@ -491,7 +662,7 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
     std::copy(qdist.begin(), qdist.end(), std::ostream_iterator<std::string>(std::cout, ","));
     std::cout << std::endl;
     std::cout << "[+] corr_degree=" << corr_degree << std::endl;
-    std::cout << "[+] true_frac=" << expansion_count << std::endl;
+    std::cout << "[+] true_frac_cnt=" << true_frac_cnt << std::endl;
     std::cout << "[+] expansion_count=" << expansion_count << std::endl;
 
 
@@ -503,11 +674,21 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
         for (const auto& q: qdist) {
             for (auto i = 0; i < ranges.size(); i++) {
                 auto range_size = ranges[i];
-                auto queries = (q == "qtrue") ? generate_true_queries(keys, n_queries, range_size) :
-                                    (expansion_count ? generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count, true_frac)
-                                                     : generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev));
+                Workload<uint64_t> queries;
+                if (q == "qtrue")
+                    queries = generate_true_queries(keys, n_queries, range_size);
+                else if (expansion_count) {
+                    if (true_frac_cnt)
+                        queries = generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count, true_frac_cnt);
+                    else 
+                        queries = generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count);
+                }
+                else {
+                    queries = generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev);
+                }
                 std::cout << std::endl
                           << "[+] generated `" << q << "_" << range_size_list[i] << "` queries" << std::endl;
+
                 std::string queries_path = root_path + std::to_string(range_size_list[i]) + "_" + q + "/";
                 if (!create_dir_recursive(queries_path))
                     throw std::runtime_error("error, impossible to create dir");
@@ -528,9 +709,18 @@ void generate_synth_datasets(const std::vector<std::string> &kdist, const std::v
                 auto range_size = ranges.back();
                 auto range_size_min = 1;
 
-                auto queries = (q == "qtrue") ? generate_true_queries(keys, n_queries, range_size) :
-                                    (expansion_count ? generate_synth_queries(q, keys, n_queries, range_size_min, range_size, corr_degree, stddev, expansion_count, true_frac)
-                                                     : generate_synth_queries(q, keys, n_queries, range_size_min, range_size, corr_degree, stddev));
+                Workload<uint64_t> queries;
+                if (q == "qtrue")
+                    queries = generate_true_queries(keys, n_queries, range_size);
+                else if (expansion_count) {
+                    if (true_frac_cnt)
+                        queries = generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count, true_frac_cnt);
+                    else 
+                        queries = generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev, expansion_count);
+                }
+                else {
+                    queries = generate_synth_queries(q, keys, n_queries, range_size, range_size, corr_degree, stddev);
+                }
 
                 auto queries_path = root_path + std::to_string(range_size_list.back()) + "M_" + q + "/"; /* mixed */
                 if (!create_dir_recursive(queries_path))
@@ -581,7 +771,7 @@ generate_real_queries(std::vector<uint64_t> &data, uint64_t n_queries, std::vect
                 "error, can build at most " + std::to_string(candidates.size()) + " over " + std::to_string(n_queries) +
                 " queries");
 
-    std::cout << "[+] found " << candidates.size() << " candidates.";
+    std::cout << "[+] found " << candidates.size() << " candidates." << std::endl;
 
     std::mt19937 gen_shuffle(seed);
     std::shuffle(candidates.begin(), candidates.end(), gen_shuffle);
@@ -627,8 +817,99 @@ generate_real_queries(std::vector<uint64_t> &data, uint64_t n_queries, std::vect
     return std::make_pair(keys, queries_list);
 }
 
+
+std::pair<InputKeys<uint64_t>, std::vector<Workload<uint64_t>>>
+generate_real_queries(std::vector<uint64_t> &keys, uint64_t n_queries, std::vector<uint64_t> &range_list,
+                      const uint32_t expansion_count, const uint64_t true_frac_cnt_) {
+    auto [new_keys, queries_list] = generate_real_queries(keys, n_queries * true_frac_cnt_, range_list);
+    std::cerr << new_keys.size() << " ++++++ " << queries_list[0].size() << std::endl;
+    std::vector<Workload<uint64_t>> q(queries_list.size());
+
+    const uint64_t n_keys = new_keys.size();
+    const uint64_t true_frac_cnt = true_frac_cnt_ + 1;
+    std::mt19937 shuffle_gen(seed - 1);
+    std::shuffle(new_keys.begin(), new_keys.end(), shuffle_gen);
+    std::sort(new_keys.begin(), new_keys.begin() + (n_keys >> expansion_count));
+
+    std::mt19937 gen_range(seed);
+    std::mt19937 gen_random_offset(seed + 1);
+    std::mt19937 gen_random_keys(seed + 2);
+
+    for (uint32_t query_id = 0; query_id < q.size(); query_id++) {
+    std::cerr << "HANDLING query_id=" << query_id << std::endl;
+    uint64_t min_range, max_range;
+    if (mixed_queries && query_id == q.size() - 1) {
+        min_range = range_list.front();
+        max_range = range_list.back();
+    }
+    else {
+        min_range = max_range = range_list[query_id];
+    }
+    std::uniform_int_distribution<uint64_t> range_distr(std::max(min_range, 1UL), max_range);
+    std::uniform_int_distribution<uint64_t> rand_offset_distr(0, max_range - 1);
+
+    uint64_t empty_query_ind = 0;
+    std::shuffle(queries_list[query_id].begin(), queries_list[query_id].end(), shuffle_gen);
+
+    {
+        const uint64_t N = (n_keys >> expansion_count);
+
+        for (uint32_t true_frac_i = 0; true_frac_i < true_frac_cnt; true_frac_i++) {
+            const double true_frac = 1.0 * true_frac_i / (true_frac_cnt - 1);
+
+            std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
+            while (q[query_id].size() < true_frac_i * n_queries + true_frac * n_queries) {
+                auto point = new_keys[rand_keys_distr(gen_random_keys)];
+                auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+                std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
+                rand_offset_distr.param(d);
+                auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
+                q[query_id].emplace_back(left, right, true);
+                printProgress(((double) q[query_id].size()) / (true_frac_cnt * (expansion_count + 1) * n_queries));
+            }
+
+            while (q[query_id].size() < (true_frac_i + 1) * n_queries) {
+                q[query_id].emplace_back(queries_list[query_id][empty_query_ind++]);
+                empty_query_ind %= queries_list[query_id].size();
+                printProgress(((double) q[query_id].size()) / (true_frac_cnt * (expansion_count + 1) * n_queries));
+            }
+        }
+    }
+
+    for (uint32_t expansion = 0; expansion < expansion_count; expansion++) {
+        uint64_t N = (n_keys >> (expansion_count - expansion - 1));
+
+        for (uint32_t true_frac_i = 0; true_frac_i < true_frac_cnt; true_frac_i++) {
+            const double true_frac = 1.0 * true_frac_i / (true_frac_cnt - 1);
+
+            std::uniform_int_distribution<uint64_t> rand_keys_distr(0, N);
+            while (q[query_id].size() < n_queries * (expansion + 1) * true_frac_cnt + true_frac_i * n_queries + true_frac * n_queries) {
+                auto point = new_keys[rand_keys_distr(gen_random_keys)];
+                auto range_size = (min_range == max_range) ? min_range : static_cast<uint64_t>(range_distr(gen_range));
+                std::uniform_int_distribution<uint64_t>::param_type d(0, range_size - 1);
+                rand_offset_distr.param(d);
+                auto [left, right] = point_to_range(point - rand_offset_distr(gen_random_offset), range_size);
+                q[query_id].emplace_back(left, right, true);
+                printProgress(((double) q[query_id].size()) / (true_frac_cnt * (expansion_count + 1) * n_queries));
+            }
+
+            while (q[query_id].size() < n_queries * (expansion + 1) * true_frac_cnt + (true_frac_i + 1) * n_queries) {
+                q[query_id].emplace_back(queries_list[query_id][empty_query_ind++]);
+                empty_query_ind %= queries_list[query_id].size();
+                printProgress(((double) q[query_id].size()) / (true_frac_cnt * (expansion_count + 1) * n_queries));
+            }
+        }
+    }
+
+    }
+
+    return {new_keys, q};
+}
+
+
 template <typename value_type = uint64_t>
-void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vector<int> range_size_list) {
+void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vector<int> range_size_list,
+                           const uint32_t expansion_count=0, const uint64_t true_frac_cnt=0) {
     std::vector<uint64_t> ranges(range_size_list.size());
     std::transform(range_size_list.begin(), range_size_list.end(), ranges.begin(), [](auto v) {
         return (1ULL << v);
@@ -637,13 +918,17 @@ void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vec
     std::string base_filename = file.substr(file.find_last_of("/\\") + 1);
     std::string::size_type pos = base_filename.find('_');
     std::string dir_name = (pos != std::string::npos) ? base_filename.substr(0, pos) : base_filename;
+    if (expansion_count > 0)
+        dir_name += "_expansion";
     std::string root_path = "./" + dir_name + "/";
     auto temp_data = read_data_binary<value_type>(file);
     auto all_data = std::vector<uint64_t>(temp_data.begin(), temp_data.end());
     assert(all_data.size() > n_queries);
 
     std::cout << "[+] starting `" << dir_name << "` dataset generation" << std::endl;
-    auto [keys, queries_list] = generate_real_queries(all_data, n_queries, ranges);
+    auto [keys, queries_list] = (expansion_count == 0 ? generate_real_queries(all_data, n_queries, ranges)
+                                                      : generate_real_queries(all_data, n_queries, ranges, expansion_count, true_frac_cnt));
+    std::cerr << "################# keys_size=" << keys.size() << " query_size=" << queries_list[0].size() << std::endl;
     std::cout << std::endl << "[+] full dataset generated" << std::endl;
     std::cout << "[+] nkeys=" << keys.size() << ", nqueries=" << queries_list[0].size() << std::endl;
 
@@ -729,12 +1014,12 @@ int main(int argc, char const *argv[]) {
             .default_value(default_corr_degree)
             .scan<'g', double>();
 
-    parser.add_argument("--true-frac")
-            .help("Number of expansions in the workload")
+    parser.add_argument("--true-frac-count")
+            .help("Number of true fraction to test, distributed uniformly")
             .nargs(1)
             .required()
-            .default_value((double) default_true_frac)
-            .scan<'g', double>();
+            .default_value((uint64_t) default_true_frac_count)
+            .scan<'u', uint64_t>();
 
     parser.add_argument("--expansion-count")
             .help("Number of expansions in the workload")
@@ -770,7 +1055,7 @@ int main(int argc, char const *argv[]) {
     auto n_queries = parser.get<uint64_t>("-q");
     auto ranges_int = parser.get<std::vector<int>>("--range-size");
     auto corr_degree = parser.get<double>("--corr-degree");
-    auto true_frac = parser.get<double>("--true-frac");
+    auto true_frac_count = parser.get<uint64_t>("--true-frac-count");
     auto expansion_count = parser.get<uint64_t>("--expansion-count");
 
     allow_true_queries = parser.get<bool>("--allow-true");
@@ -786,15 +1071,17 @@ int main(int argc, char const *argv[]) {
         {
             if (file.find("uint32") != std::string::npos)
                 generate_real_dataset<uint32_t>(file, n_queries, ranges_int);
-            else
+            else if (expansion_count == 0)
                 generate_real_dataset(file, n_queries, ranges_int);
+            else 
+                generate_real_dataset(file, n_queries, ranges_int, expansion_count, true_frac_count);
         }
 
     }
     else if (expansion_count == 0)
         generate_synth_datasets(kdist, qdist, n_keys, n_queries, ranges_int, corr_degree);
     else 
-        generate_synth_datasets(kdist, qdist, n_keys, n_queries, ranges_int, corr_degree, (long double) UINT64_MAX * 0.1, expansion_count, true_frac);
+        generate_synth_datasets(kdist, qdist, n_keys, n_queries, ranges_int, corr_degree, (long double) UINT64_MAX * 0.1, expansion_count, true_frac_count);
 
     return 0;
 }
