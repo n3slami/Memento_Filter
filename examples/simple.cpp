@@ -1,7 +1,4 @@
 /*
- * This file is part of Grafite <https://github.com/marcocosta97/grafite>.
- * Copyright (C) 2023 Marco Costa.
- *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
