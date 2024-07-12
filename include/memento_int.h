@@ -1,10 +1,20 @@
 /*
  * ============================================================================
  *
- *        Authors:  Prashant Pandey <ppandey@cs.stonybrook.edu>
- *                  Rob Johnson <robj@vmware.com>
+ *        Memento filter 
+ *          Autors:   ---
+ *
+ *        RSQF 
+ *          Authors:  Prashant Pandey <ppandey@cs.stonybrook.edu>
+ *                    Rob Johnson <robj@vmware.com>   
  *
  * ============================================================================
+ */
+
+/* 
+ * IMPORTANT:
+ *      The new/edited functions for Memento filter are annotated using
+ *      comments of the form "NEW IN MEMENTO."
  */
 
 #ifndef _GQF_INT_H_
@@ -93,8 +103,8 @@ extern "C" {
         uint64_t nslots;
         uint64_t xnslots;
         uint64_t key_bits;
-        uint64_t original_quotient_bits;
-        uint64_t memento_bits;
+        uint64_t original_quotient_bits;    // NEW IN MEMENTO
+        uint64_t memento_bits;              // NEW IN MEMENTO
         uint64_t fingerprint_bits;
         uint64_t bits_per_slot;
         __uint128_t range;
@@ -136,3 +146,4 @@ extern "C" {
 #endif
 
 #endif /* _GQF_INT_H_ */
+
