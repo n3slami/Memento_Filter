@@ -132,10 +132,15 @@ inline QF *init_memento(const t_itr begin, const t_itr end, const double bpk, Ar
     const uint64_t max_range_size = *std::max_element(query_lengths.begin(), query_lengths.end());
     const double load_factor = 0.95;
     const uint64_t n_slots = n_items / load_factor + std::sqrt(n_items);
+    int predef_memento_size = std::get<1>(t);
     uint32_t memento_bits = 1;
-    while ((1ULL << memento_bits) < max_range_size)
-        memento_bits++;
-    memento_bits = memento_bits < 2 ? 2 : memento_bits;
+    if (predef_memento_size == -1) {
+        while ((1ULL << memento_bits) < max_range_size)
+            memento_bits++;
+        memento_bits = memento_bits < 2 ? 2 : memento_bits;
+    }
+    else 
+        memento_bits = predef_memento_size;
     const uint32_t fingerprint_size = round(bpk * load_factor - memento_bits - 2.125);
     uint32_t key_size = 0;
     while ((1ULL << key_size) <= n_slots)
@@ -211,10 +216,10 @@ int main(int argc, char const *argv[])
         std::exit(1);
     }
 
-    auto [ keys, queries, arg ] = read_parser_arguments(parser);
+    auto [ keys, queries, arg, memento_size ] = read_parser_arguments_memento(parser);
 
     experiment(pass_fun(init_memento), pass_ref(query_memento), 
-                pass_ref(size_memento), arg, keys, queries, queries);
+                pass_ref(size_memento), arg, keys, queries, queries, memento_size);
 
     print_test();
 

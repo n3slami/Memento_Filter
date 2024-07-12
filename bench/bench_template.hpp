@@ -103,6 +103,12 @@ argparse::ArgumentParser init_parser(const std::string &name)
             .nargs(1)
             .scan<'i', int>();
 
+    parser.add_argument("--memento-size")
+            .help("sets the memento size (Memento filter exclusive)")
+            .nargs(1)
+            .default_value(-1)
+            .scan<'i', int>();
+
 
     return parser;
 }
@@ -159,6 +165,62 @@ std::tuple<InputKeys<uint64_t>, Workload<uint64_t>, double> read_parser_argument
     std::cout << "[+] nkeys=" << keys.size() << ", nqueries=" << queries.size() << std::endl;
     std::cout << "[+] keys and queries loaded, starting test." << std::endl;
     return std::make_tuple(keys, queries, arg);
+}
+
+std::tuple<InputKeys<uint64_t>, Workload<uint64_t>, double, int> read_parser_arguments_memento(argparse::ArgumentParser &parser)
+{
+    auto arg = parser.get<double>("arg");
+
+    auto keys_filename = parser.get<std::string>("keys");
+    auto keys = (has_suffix(keys_filename, ".txt")) ? read_keys_from_file<uint64_t>(keys_filename)
+                                                    : read_data_binary<uint64_t>(keys_filename);
+    auto files = parser.get<std::vector<std::string>>("workload");
+
+    Workload<uint64_t> queries;
+    if (has_suffix(files[0], ".txt"))
+        exit(0);
+    else
+    {
+        auto left_q = read_data_binary<uint64_t>(files[0], false);
+        auto right_q = read_data_binary<uint64_t>(files[1], false);
+
+        if (files.size() == 3)
+        {
+            auto res_q = read_data_binary<int>(files[2], false);
+
+            for (auto i = 0; i < left_q.size(); i++)
+                queries.emplace_back(left_q[i], right_q[i], res_q[i]);
+        }
+        else
+            for (auto i = 0; i < left_q.size(); i++)
+                queries.emplace_back(left_q[i], right_q[i], false);
+    }
+
+    if (keys.empty())
+        throw std::runtime_error("error, keys file is empty.");
+    if (queries.empty())
+        throw std::runtime_error("error, queries file is empty.");
+
+    const int memento_size = parser.get<int>("--memento-size");
+
+    if (auto max_queries = parser.present<int>("--max-queries"))
+    {
+        if (*max_queries < queries.size())
+            queries.resize(*max_queries);
+    }
+
+    if (auto arg_csv = parser.present<std::string>("--csv"))
+    {
+        print_csv = true;
+        csv_file = *arg_csv;
+    }
+
+    std::mt19937 shuffle_gen(query_shuffle_seed);
+    std::shuffle(queries.begin(), queries.end(), shuffle_gen);
+
+    std::cout << "[+] nkeys=" << keys.size() << ", nqueries=" << queries.size() << ", memento_size=" << memento_size << std::endl;
+    std::cout << "[+] keys and queries loaded, starting test." << std::endl;
+    return std::make_tuple(keys, queries, arg, memento_size);
 }
 
 void print_test()

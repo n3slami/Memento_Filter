@@ -48,6 +48,11 @@ if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test fpr_real $WORKLOADS_PATH/fpr_
   exit 1
 fi
 echo "[!!] fpr_real_test (figure 4,5) test executed successfully"
+if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test vary_memento $WORKLOADS_PATH/vary_memento_test $GRAFITE_BUILD_PATH ; then
+  echo "[!!] vary_memento_test test failed"
+  exit 1
+fi
+echo "[!!] vary_memento_test (figure 1,3) test executed successfully"
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test true $WORKLOADS_PATH/true_test $GRAFITE_BUILD_PATH ; then
   echo "[!!] query_time_test test failed"
   exit 1

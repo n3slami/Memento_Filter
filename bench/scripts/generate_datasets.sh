@@ -53,6 +53,12 @@ generate_corr_test() {
   done
 }
 
+generate_true_test() {
+  #$WORKLOAD_GEN_PATH --kdist kuniform --mixed --qdist qtrue
+  #$WORKLOAD_GEN_PATH --kdist knormal --mixed --qdist qtrue
+  $WORKLOAD_GEN_PATH --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 --qdist qtrue
+}
+
 generate_constr_time_test() {
   i=5
   x=100000
@@ -63,6 +69,11 @@ generate_constr_time_test() {
     x=$(echo "$x * 10" | bc)
     i=$(($i + 1))
   done
+}
+
+generate_memento_vary_test() {
+  $WORKLOAD_GEN_PATH --mixed --range-size 0 5 --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64
+  $WORKLOAD_GEN_PATH --mixed --range-size 0 5 --kdist kuniform --qdist qcorrelated --corr-degree 0.8
 }
 
 mkdir -p $OUT_PATH/corr_test && cd $OUT_PATH/corr_test || exit 1
@@ -84,7 +95,7 @@ if ! $WORKLOAD_GEN_PATH --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uin
 fi
 echo "[!!] fpr_real_test (figure 4) dataset generated"
 mkdir -p ../true_test && cd ../true_test || exit 1
-if ! $WORKLOAD_GEN_PATH --mixed --qdist qtrue ; then
+if ! generate_true_test ; then
   echo "[!!] true_test generation failed"
   exit 1
 fi
@@ -95,4 +106,10 @@ if ! generate_constr_time_test ; then
   exit 1
 fi
 echo "[!!] constr_time_test (figure 7) dataset generated"
+mkdir -p $OUT_PATH/vary_memento_test && cd $OUT_PATH/vary_memento_test || exit 1
+if ! generate_memento_vary_test ; then
+  echo "[!!] memento_vary_test generation failed"
+  exit 1
+fi
+echo "[!!] memento_vary_test dataset generated"
 echo "[!!] success, all datasets generated"

@@ -430,7 +430,8 @@ generate_real_queries(std::vector<uint64_t> &data, uint64_t n_queries, std::vect
 }
 
 template <typename value_type = uint64_t>
-void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vector<int> range_size_list) {
+void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vector<int> range_size_list,
+                           const bool true_queries=false) {
     std::vector<uint64_t> ranges(range_size_list.size());
     std::transform(range_size_list.begin(), range_size_list.end(), ranges.begin(), [](auto v) {
         return (1ULL << v);
@@ -443,6 +444,31 @@ void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vec
     auto temp_data = read_data_binary<value_type>(file);
     auto all_data = std::vector<uint64_t>(temp_data.begin(), temp_data.end());
     assert(all_data.size() > n_queries);
+
+    if (true_queries) {
+        for (auto i = 0; i < ranges.size(); i++) {
+            auto range_size = ranges[i];
+            auto queries = generate_true_queries(all_data, n_queries, range_size);
+            std::cout << std::endl
+                << "[+] generated `qtrue_" << range_size_list[i] << "` queries" << std::endl;
+            std::string queries_path = root_path + std::to_string(range_size_list[i]) + "/";
+            if (!create_dir_recursive(queries_path))
+                throw std::runtime_error("error, impossible to create dir");
+
+            if (allow_true_queries && range_size == 1)
+                save_queries(queries, queries_path + "point", "",queries_path + "result");
+            else if (allow_true_queries)
+                save_queries(queries, queries_path + "left", queries_path + "right", queries_path + "result");
+            else if (range_size == 1)
+                save_queries(queries, queries_path + "point");
+            else
+                save_queries(queries, queries_path + "left", queries_path + "right");
+            std::cout << "[+] queries wrote at " << queries_path << std::endl;
+        }
+        save_keys(all_data, root_path + "keys");
+        std::cout << "[+] keys wrote at " << root_path << std::endl;
+        return;
+    }
 
     std::cout << "[+] starting `" << dir_name << "` dataset generation" << std::endl;
     auto [keys, queries_list] = generate_real_queries(all_data, n_queries, ranges);
@@ -474,7 +500,6 @@ void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vec
 
     save_keys(keys, root_path + "keys");
     std::cout << "[+] keys wrote at " << root_path << std::endl;
-
 }
 
 int main(int argc, char const *argv[]) {
@@ -572,7 +597,7 @@ int main(int argc, char const *argv[]) {
             if (file.find("uint32") != std::string::npos)
                 generate_real_dataset<uint32_t>(file, n_queries, ranges_int);
             else
-                generate_real_dataset(file, n_queries, ranges_int);
+                generate_real_dataset(file, n_queries, ranges_int, qdist[0] == "qtrue");
         }
 
     }

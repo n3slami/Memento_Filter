@@ -13,3 +13,9 @@
 [submodule "bench/include/grafite"]
 	path = bench/include/grafite
 	url = https://github.com/marcocosta97/grafite.git
+[submodule "bench/include/cqf"]
+	path = bench/include/cqf
+	url = https://github.com/splatlab/cqf
+[submodule "bench/include/Oasis-RangeFilter"]
+	path = bench/include/Oasis-RangeFilter
+	url = https://github.com/Woooooow-Pro/Oasis-RangeFilter.git

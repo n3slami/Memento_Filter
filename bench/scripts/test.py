@@ -29,8 +29,10 @@ use_numa = False
 membind = 0
 physcpubind = 16
 
-ds_list = ["memento", "grafite", "surf", "rosetta", "snarf", "proteus", "rencoder"]
+ds_list = ["memento", "grafite", "surf", "rosetta", "snarf", "proteus", "rencoder", "oasis"]
+# ds_list = ["oasis"]
 # ds_list_with_bucketing = ds_list.copy() + ['bucketing']
+memento_sizes_to_test = []
 
 ds_benchmark_executables = {}
 
@@ -40,7 +42,8 @@ ds_parameters = {'memento': list(np.linspace(8, 28, 6)),  # eps
                  'snarf': list(np.linspace(8, 28, 6)),  # bpk
                  'rosetta': list(np.linspace(8, 28, 6)),  # bpk
                  'proteus': list(np.linspace(8, 28, 6)),
-                 'rencoder': list(np.linspace(8, 28, 6))}  # bpk
+                 'rencoder': list(np.linspace(8, 28, 6)),  # bpk
+                 'oasis': list(np.linspace(8, 28, 6))}     # bpk
 
 ds_parameters_small_universe = {'memento': list(np.linspace(7, 12, 6)),  # eps
                                 'grafite': list(np.linspace(7, 12, 6)),  # eps
@@ -48,7 +51,8 @@ ds_parameters_small_universe = {'memento': list(np.linspace(7, 12, 6)),  # eps
                                 'snarf': list(np.linspace(7, 12, 6)),  # bpk
                                 'rosetta': list(np.linspace(7, 12, 6)),  # bpk
                                 'proteus': list(np.linspace(7, 12, 6)),
-                                'rencoder': list(np.linspace(7, 12, 6))}  # bpk
+                                'rencoder': list(np.linspace(7, 12, 6)), # bpk
+                                'oasis': list(np.linspace(7, 12, 6))}    # bpk
 
 
 # Format of the test directories for bulk testing
@@ -82,15 +86,23 @@ def execute_test(ds, keys_path, data, path_csv):
         param = ds_parameters[ds]
 
     for arg in param:
-        if 'rosetta' not in ds and use_numa:
-            command = f'numactl --membind={membind} --physcpubind={physcpubind} {ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
+        if ds == "memento" and len(memento_sizes_to_test) > 0:
+            for memento_size in memento_sizes_to_test:
+                command = f'{ds_benchmark_executables[ds]} {arg} --memento-size {memento_size} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
+                print('{:^24s}'.format(f"[ starting \"{command}\"]"))
+                stream = os.popen(command)
+                print(stream.read())
+                print('{:^24s}'.format("[ command finished ]"))
         else:
-            command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
+            if 'rosetta' not in ds and use_numa:
+                command = f'numactl --membind={membind} --physcpubind={physcpubind} {ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
+            else:
+                command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
 
-        print('{:^24s}'.format(f"[ starting \"{command}\"]"))
-        stream = os.popen(command)
-        print(stream.read())
-        print('{:^24s}'.format("[ command finished ]"))
+            print('{:^24s}'.format(f"[ starting \"{command}\"]"))
+            stream = os.popen(command)
+            print(stream.read())
+            print('{:^24s}'.format("[ command finished ]"))
     print('{:^24s}'.format(f"[ --- {ds} finished --- ]"))
 
 
@@ -207,13 +219,20 @@ if __name__ == "__main__":
         ds_list = ['grafite']
         ds_parameters['grafite'] = [20]  # 20 bpk (L = 2^8, eps = 0.001)
     elif test_name == 'corr':
+        ds_list = ['rsqf'] + ds_list
         ds_parameters = {'memento': [20],
                          'grafite': [20],
                          'surf': [10],  # suffix bits
                          'snarf': [20],  # bpk
                          'rosetta': [20],  # bpk
                          'proteus': [20],
-                         'rencoder': [20]}  # bpk
+                         'rencoder': [20], # bpk
+                         'oasis': [20],  # bpk
+                         'rsqf': [20]}
+    elif test_name == "vary_memento":
+        ds_list = ['memento']
+        ds_parameters = {'memento': [20]}
+        memento_sizes_to_test = np.arange(1, 11)
 
     benchmarks_dir = Path(f'{args.grafite_dir}/bench/')
 
