@@ -1,10 +1,20 @@
 /*
  * ============================================================================
  *
- *        Authors:  Prashant Pandey <ppandey@cs.stonybrook.edu>
- *                  Rob Johnson <robj@vmware.com>
+ *        Memento filter 
+ *          Autors:   ---
+ *
+ *        RSQF 
+ *          Authors:  Prashant Pandey <ppandey@cs.stonybrook.edu>
+ *                    Rob Johnson <robj@vmware.com>   
  *
  * ============================================================================
+ */
+
+/* 
+ * IMPORTANT:
+ *      The new/edited functions for Memento filter are annotated using
+ *      comments of the form "NEW IN MEMENTO."
  */
 
 #include <stdint.h>
@@ -44,10 +54,38 @@
 #define GET_WAIT_FOR_LOCK(flag) (flag & QF_WAIT_FOR_LOCK)
 #define GET_KEY_HASH(flag) (flag & QF_KEY_IS_HASH)
 
+// NEW IN MEMENTO
 #define GET_FINGERPRINT(qf, slot_index) (get_slot(qf, slot_index) >> qf->metadata->memento_bits)
+// NEW IN MEMENTO
 #define GET_MEMENTO(qf, slot_index) (get_slot(qf, slot_index) & BITMASK(qf->metadata->memento_bits))
 
+// NEW IN MEMENTO
 #define CMP_MASK_FINGERPRINT(a, b, mask) ((((a) ^ (b)) & (mask)) == 0)
+
+/*
+ * Writing the data into the slots of the filter efficiently is a challenge, as
+ * doing it naively may cause many memory accesses. These macros aid in
+ * efficiently writing data to these slots. They work by buffering the mementos
+ * in machine words and flushing whenever the run out of space. They are
+ * defined as macros because it was more convenient for me to have direct
+ * access to the state of this buffering mechanism so that I could read and
+ * write from it as I saw fit. They also handle all the nitty gritty details of
+ * correctly writing the bits and overwriting the appropriate memory segments.
+ * Furthermore, they don't pollute the namespace of the code using them, as
+ * they place curly braces around the newly added segment of code.
+ * The parameters are defined as follows:
+ *      `qf`: The memento filter instance being operated on
+ *      `data`: The buffered slots read from the filter
+ *      `payload`: The buffered payload of data
+ *      `filled_bits`: The number of bits already in use in `data`
+ *      `bit_cnt`: The number of bits to read/write
+ *      `bit_pos`: The bit offset of the current slot with respect to the start 
+ *                 of the block
+ *      `block_ind`: The block that the current slots is contained in
+ * These parameters are literally variables defined in the calling function,
+ * allowing the caller to have direct access to the state of the algorithm.
+ */
+// NEW IN MEMENTO
 #define GET_NEXT_DATA_WORD_IF_EMPTY(qf, data, filled_bits, bit_cnt, bit_pos, block_ind) \
     { \
     while (filled_bits < (bit_cnt)) { \
@@ -69,6 +107,7 @@
         } \
     } \
     }
+// NEW IN MEMENTO
 #define INIT_PAYLOAD_WORD(qf, payload, filled_bits, bit_pos, block_ind) \
     { \
     uint64_t byte_pos = bit_pos / 8; \
@@ -77,11 +116,13 @@
     filled_bits = bit_pos % 8; \
     bit_pos -= bit_pos % 8; \
     }
+// NEW IN MEMENTO
 #define PRINT_WORD_BITS(word) \
     fprintf(stderr, "word: "); \
     for (int32_t i = 63; i >= 0; i--) \
         fprintf(stderr, "%lu", (word >> i) & 1); \
     fprintf(stderr, "\n");
+// NEW IN MEMENTO
 #define APPEND_WRITE_PAYLOAD_WORD(qf, payload, filled_bits, val, val_len, bit_pos, block_ind) \
     { \
     const uint64_t bits_per_block = QF_SLOTS_PER_BLOCK * qf->metadata->bits_per_slot; \
@@ -113,6 +154,7 @@
         filled_bits += val_bit_cnt; \
     } \
     }
+// NEW IN MEMENTO
 #define FLUSH_PAYLOAD_WORD(qf, payload, filled_bits, bit_pos, block_ind) \
     { \
     uint64_t byte_pos = bit_pos / 8; \
@@ -134,13 +176,6 @@
 
 #define DEBUG_DUMP(qf) \
 	do { if (PRINT_DEBUG) qf_dump_metadata(qf); } while (0)
-
-// static __inline__ unsigned long long rdtsc(void)
-// {
-// 	unsigned hi, lo;
-// 	__asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
-// 	return ( (unsigned long long)lo)|( ((unsigned long long)hi)<<32 );
-// }
 
 #ifdef LOG_WAIT_TIME
 static inline bool qf_spin_lock(QF *qf, volatile int *lock, uint64_t idx,
@@ -198,9 +233,11 @@ static inline bool qf_spin_lock(QF *qf, volatile int *lock, uint64_t idx,
 }
 #else
 
+// NEW IN MEMENTO
 __attribute__((always_inline))
 static inline uint32_t fast_reduce(uint32_t hash, uint32_t n) {
-    // http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
+    // A fast replacement for modulo operations. Credit to Daniel Lemiere.
+    // See http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
     return (uint32_t) (((uint64_t) hash * n) >> 32);
 }
 
@@ -521,7 +558,7 @@ static inline uint64_t bitselect(uint64_t val, int rank) {
 
 // Returns the position of the lowbit of val.
 // Returns 64 if there are zero set bits.
-static inline uint64_t lowbit_position(uint64_t val) {
+static inline uint64_t lowbit_position(uint64_t val) {  // NEW IN MEMENTO
 #ifdef __SSE4_2_
 	uint64_t i = 1ULL;
 	asm("tzcnt %[bit], %[index]"
@@ -535,7 +572,7 @@ static inline uint64_t lowbit_position(uint64_t val) {
 
 // Returns the position of the highbit of val.
 // Returns 0 if there are zero set bits.
-static inline uint64_t highbit_position(uint64_t val) {
+static inline uint64_t highbit_position(uint64_t val) { // NEW IN MEMENTO
 #ifdef __SSE4_2_
 	uint64_t i = 1ULL;
 	asm("lzcnt %[bit], %[index]"
@@ -677,41 +714,6 @@ static inline void set_slot(const QF *qf, uint64_t index, uint64_t value)
 	memcpy(p, &t, sizeof(t));
 }
 
-static inline uint64_t get_kth_word_from_slot(const QF *qf, uint64_t index, uint64_t k)
-{
-	assert(index < qf->metadata->xnslots - 64 * k);
-	/* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
-	 * to generate buggy code.  :/  */
-	uint64_t res;
-    uint64_t first_index_bit_pos = (index % QF_SLOTS_PER_BLOCK) 
-                                    * qf->metadata->bits_per_slot 
-                                    + k * sizeof(res) * 8;
-    uint32_t last_index_bit_pos = first_index_bit_pos + sizeof(res) * 8 - 1;
-    const uint64_t bits_per_block = qf->metadata->bits_per_slot * QF_SLOTS_PER_BLOCK;
-    uint64_t block_ind = index / QF_SLOTS_PER_BLOCK;
-    while (first_index_bit_pos > bits_per_block) {
-        first_index_bit_pos -= bits_per_block;
-        block_ind++;
-    }
-    uint32_t ignore_prefix_len = first_index_bit_pos % 8;
-
-	uint64_t *p = (uint64_t *) &get_block(qf, block_ind)
-                                    ->slots[first_index_bit_pos / 8];
-	memcpy(&res, p, sizeof(res));
-    res >>= ignore_prefix_len;
-
-    if (last_index_bit_pos >= bits_per_block) {
-        uint64_t t;
-        p = (uint64_t *) &get_block(qf, block_ind + 1)->slots[0];
-        memcpy(&t, p, sizeof(t));
-        res |= (t << (64 - last_index_bit_pos % (8 * sizeof(res))));
-    }
-    else {
-        res |= (p[sizeof(res)] << (8 * sizeof(res) - ignore_prefix_len));
-    }
-    return res;
-}
-
 #endif
 
 static inline uint64_t run_end(const QF *qf, uint64_t hash_bucket_index);
@@ -823,7 +825,7 @@ static inline uint64_t find_first_empty_slot(QF *qf, uint64_t from)
 
 // Resulting value is at most 64, since that is enough to store all mementos.
 static inline uint64_t get_number_of_consecutive_empty_slots(QF *qf, uint64_t first_empty,
-        uint64_t goal_slots)
+        uint64_t goal_slots)    // NEW IN MEMENTO
 {
 #ifdef DEBUG
     fprintf(stderr, "GETTING NUMBER OF CONSECUTIVE EMPTY SLOTS FROM %lu\n", first_empty);
@@ -1004,8 +1006,12 @@ static inline void find_next_n_empty_slots(QF *qf, uint64_t from, uint64_t n,
 	}
 }
 
+/*
+ * Returns pairs of the form (pos, len) denoting ranges where empty slots start
+ * and how many slots after them are empty.
+ */
 static inline uint32_t find_next_empty_slot_runs_of_size_n(QF *qf, uint64_t from, 
-                                                    uint64_t n, uint64_t *indices)
+                                                    uint64_t n, uint64_t *indices)  // NEW IN MEMENTO
 {
     uint32_t ind = 0;
     while (n > 0) {
@@ -1025,7 +1031,8 @@ static inline uint32_t find_next_empty_slot_runs_of_size_n(QF *qf, uint64_t from
 }
 
 static inline void left_shift_slots_by_words(QF *qf, int64_t first, int64_t last,
-                                                int64_t distance) {
+                                                int64_t distance)   // NEW IN MEMENTO
+{
 #ifdef DEBUG
     fprintf(stderr, "LEFT SHIFTING first=%ld last=%ld --- distance=%ld\n", first, last, distance);
 #endif /* DEBUG */
@@ -1065,7 +1072,7 @@ static inline void left_shift_slots_by_words(QF *qf, int64_t first, int64_t last
 }
 
 static inline void shift_slots(QF *qf, int64_t first, uint64_t last, 
-                                uint64_t distance)
+                                uint64_t distance)  // NEW IN MEMENTO
 {
 	int64_t i, j;
 	if (distance == 1)
@@ -1075,7 +1082,10 @@ static inline void shift_slots(QF *qf, int64_t first, uint64_t last,
 		//for (i = last; i >= first; i--)
 		//	set_slot(qf, i + distance, get_slot(qf, i));
 
-        // Faster implementation?
+        // Faster implementation? It follows a very similar logic as the macros
+        // implemented at the start of this file where it moves the data one
+        // word at a time as opposed to one slots at a time, but it's a bit
+        // more optimized for the specific use case of shifting many slots.
         const uint32_t bits_in_block = qf->metadata->bits_per_slot * QF_SLOTS_PER_BLOCK;
 
         int64_t x_last_block = last / QF_SLOTS_PER_BLOCK;
@@ -1143,7 +1153,7 @@ static inline void shift_slots(QF *qf, int64_t first, uint64_t last,
 }
 
 static inline void shift_runends(QF *qf, int64_t first, uint64_t last,
-                                     uint64_t distance)
+                                     uint64_t distance)     // NEW IN MEMENTO
 {
 	assert(last < qf->metadata->xnslots && distance < 64);
 	uint64_t first_word = first / 64;
@@ -1152,6 +1162,9 @@ static inline void shift_runends(QF *qf, int64_t first, uint64_t last,
 	uint64_t bend = (last + distance + 1) % 64;
 
     if (last_word != first_word) {
+        // The code in the original RSQF implementation had a weird issue with
+        // overwriting parts of the bitmap that it shouldn't have touched. The
+        // issue came up when `distance > 1`, and is fixed now.
         const uint64_t first_runends_replacement = METADATA_WORD(qf, runends, first) & (~BITMASK(bstart));
         METADATA_WORD(qf, runends, 64*last_word) = shift_into_b((last_word == first_word + 1 ? first_runends_replacement
                                                                                              : METADATA_WORD(qf, runends, 64*(last_word-1))),
@@ -1366,7 +1379,8 @@ static inline int remove_replace_slots_and_shift_remainders_and_runends_and_offs
 }
 
 static inline int32_t make_empty_slot_for_memento_list(QF *qf,
-                                        uint64_t bucket_index, uint64_t pos) {
+                                        uint64_t bucket_index, uint64_t pos)    // NEW IN MEMENTO
+{
     const int64_t next_empty = find_first_empty_slot(qf, pos);
     if (next_empty >= qf->metadata->xnslots) {  // Check that the new data fits
         return QF_NO_SPACE;
@@ -1385,7 +1399,8 @@ static inline int32_t make_empty_slot_for_memento_list(QF *qf,
 }
 
 static inline int32_t make_n_empty_slots_for_memento_list(QF *qf,
-                            uint64_t bucket_index, uint64_t pos, uint32_t n) {
+                            uint64_t bucket_index, uint64_t pos, uint32_t n)    // NEW IN MEMENTO
+{
     uint64_t empty_runs[2 * n];
     uint64_t empty_runs_ind = find_next_empty_slot_runs_of_size_n(qf, pos,
                                                                 n, empty_runs);
@@ -1449,7 +1464,8 @@ static inline int32_t make_n_empty_slots_for_memento_list(QF *qf,
 
 static inline int32_t write_prefix_set(QF *qf, const uint64_t pos,
         const uint64_t fingerprint, const uint64_t *mementos, 
-        const uint64_t memento_cnt) {
+        const uint64_t memento_cnt)     // NEW IN MEMENTO
+{
 #ifdef DEBUG
     fprintf(stderr, "WRITING PREFIX SET pos=%lu fingerprint=", pos);
     for (int i = qf->metadata->fingerprint_bits; i >= 0; i--)
@@ -1558,7 +1574,8 @@ static inline int32_t write_prefix_set(QF *qf, const uint64_t pos,
 
 static inline int32_t remove_mementos_from_prefix_set(QF *qf, const uint64_t pos, 
             const uint64_t *mementos, bool *handled, const uint32_t memento_cnt,
-            int32_t *new_slot_count, int32_t *old_slot_count) {
+            int32_t *new_slot_count, int32_t *old_slot_count)   // NEW IN MEMENTO
+{
 #ifdef DEBUG
     fprintf(stderr, "REMOVING mementos=[");
     for (int i = 0; i < memento_cnt; i++) {
@@ -1720,7 +1737,8 @@ static inline int32_t remove_mementos_from_prefix_set(QF *qf, const uint64_t pos
 }
 
 static inline int32_t add_memento_to_sorted_list(QF *qf, const uint64_t bucket_index,
-                                            const uint64_t pos, uint64_t new_memento) {
+                                            const uint64_t pos, uint64_t new_memento)   // NEW IN MEMENTO
+{
     const uint64_t f1 = GET_FINGERPRINT(qf, pos);
     const uint64_t m1 = GET_MEMENTO(qf, pos);
     const uint64_t f2 = GET_FINGERPRINT(qf, pos + 1);
@@ -2014,7 +2032,8 @@ static inline int32_t add_memento_to_sorted_list(QF *qf, const uint64_t bucket_i
 // list, and not any of the slots containing fingerprints.
 __attribute__((always_inline))
 static inline uint64_t number_of_slots_used_for_memento_list(const QF *qf,
-                                                            uint64_t pos) {
+                                                            uint64_t pos)   // NEW IN MEMENTO
+{
     const uint64_t max_memento = ((1ULL << qf->metadata->memento_bits) - 1);
     uint64_t data = get_slot(qf, pos);
     int64_t memento_count = (data & max_memento) + 1;
@@ -2063,7 +2082,8 @@ static inline uint64_t number_of_slots_used_for_memento_list(const QF *qf,
 
 __attribute__((always_inline))
 static inline uint64_t next_matching_fingerprint_in_run(const QF *qf, uint64_t pos,
-        const uint64_t fingerprint) {
+        const uint64_t fingerprint)     // NEW IN MEMENTO
+{
     uint64_t current_fingerprint, current_memento;
     uint64_t next_fingerprint, next_memento;
     while (true) {
@@ -2095,7 +2115,8 @@ static inline uint64_t next_matching_fingerprint_in_run(const QF *qf, uint64_t p
 }
 
 static inline uint64_t lower_bound_fingerprint_in_run(const QF *qf, uint64_t pos,
-        uint64_t fingerprint) {
+        uint64_t fingerprint)   // NEW IN MEMENTO
+{
     uint64_t current_fingerprint, current_memento;
     uint64_t next_fingerprint, next_memento;
     do {
@@ -2125,7 +2146,8 @@ static inline uint64_t lower_bound_fingerprint_in_run(const QF *qf, uint64_t pos
 }
 
 static inline uint64_t upper_bound_fingerprint_in_run(const QF *qf, uint64_t pos,
-        uint64_t fingerprint) {
+        uint64_t fingerprint)   // NEW IN MEMENTO
+{
     uint64_t current_fingerprint, current_memento;
     do {
         current_fingerprint = GET_FINGERPRINT(qf, pos);
@@ -2153,7 +2175,7 @@ static inline uint64_t upper_bound_fingerprint_in_run(const QF *qf, uint64_t pos
 
 static inline int insert_mementos(QF *qf, const __uint128_t hash,
         const uint64_t mementos[], const uint64_t memento_count, 
-        const uint32_t actual_fingerprint_size, const uint8_t runtime_lock)
+        const uint32_t actual_fingerprint_size, const uint8_t runtime_lock)     // NEW IN MEMENTO
 {
 	int ret_distance = 0;
     const uint32_t bucket_index_hash_size = qf->metadata->key_bits - qf->metadata->fingerprint_bits;
@@ -2330,13 +2352,14 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
 
 static inline uint64_t init_filter(QF *qf, uint64_t nslots, uint64_t key_bits,
         uint64_t memento_bits, enum qf_hashmode hash_mode, uint32_t seed,
-        void *buffer, uint64_t buffer_len, const uint64_t orig_quotient_bit_cnt) {
+        void *buffer, uint64_t buffer_len, const uint64_t orig_quotient_bit_cnt)    // NEW IN MEMENTO
+{
 	uint64_t num_slots, xnslots, nblocks;
 	uint64_t fingerprint_bits, bits_per_slot;
 	uint64_t size;
 	uint64_t total_num_bytes;
 
-	//assert(popcnt(nslots) == 1); /* nslots must be a power of 2 */
+    /* nslots can be any number now, as opposed to just being able to be a power of 2! */
 	num_slots = nslots;
 	xnslots = nslots + 10 * sqrt((double) nslots);
 	nblocks = (xnslots + QF_SLOTS_PER_BLOCK - 1) / QF_SLOTS_PER_BLOCK;
@@ -2412,7 +2435,8 @@ static inline uint64_t init_filter(QF *qf, uint64_t nslots, uint64_t key_bits,
 
 uint64_t qf_init(QF *qf, uint64_t nslots, uint64_t key_bits, uint64_t memento_bits,
                  enum qf_hashmode hash_mode, uint32_t seed, void *buffer,
-                 uint64_t buffer_len) {
+                 uint64_t buffer_len)   // NEW IN MEMENTO
+{
     return init_filter(qf, nslots, key_bits, memento_bits, hash_mode, seed,
                         buffer, buffer_len, 0);
 }
@@ -2462,7 +2486,8 @@ void *qf_destroy(QF *qf)
 
 static inline bool malloc_filter(QF *qf, const uint64_t nslots, const uint64_t key_bits, 
         const uint64_t memento_bits, const enum qf_hashmode hash_mode, const uint32_t seed, 
-        const uint64_t orig_quotient_size) {
+        const uint64_t orig_quotient_size)  // NEW IN MEMENTO
+{
 	uint64_t total_num_bytes = init_filter(qf, nslots, key_bits, memento_bits,
                                     hash_mode, seed, NULL, 0, orig_quotient_size);
 
@@ -2488,7 +2513,8 @@ static inline bool malloc_filter(QF *qf, const uint64_t nslots, const uint64_t k
 }
 
 bool qf_malloc(QF *qf, uint64_t nslots, uint64_t key_bits, uint64_t memento_bits, 
-                enum qf_hashmode hash_mode, uint32_t seed) {
+                enum qf_hashmode hash_mode, uint32_t seed)  // NEW IN MEMENTO
+{
     return malloc_filter(qf, nslots, key_bits, memento_bits, hash_mode, seed, 0);
 }
 
@@ -2533,7 +2559,7 @@ void qf_reset(QF *qf)
 #endif
 }
 
-int64_t qf_resize_malloc(QF *qf, uint64_t nslots)
+int64_t qf_resize_malloc(QF *qf, uint64_t nslots)   // NEW IN MEMENTO
 {
 #ifdef DEBUG
     uint64_t occupied_cnt = 0, runend_cnt = 0;
@@ -2611,7 +2637,7 @@ int64_t qf_resize_malloc(QF *qf, uint64_t nslots)
 	return ret_numkeys;
 }
 
-uint64_t qf_resize(QF *qf, uint64_t nslots, void* buffer, uint64_t buffer_len)
+uint64_t qf_resize(QF *qf, uint64_t nslots, void* buffer, uint64_t buffer_len)  // NEW IN MEMENTO
 {
 	QF new_qf;
 	new_qf.runtimedata = (qfruntime *)calloc(sizeof(qfruntime), 1);
@@ -2666,7 +2692,7 @@ void qf_set_auto_resize(QF* qf, bool enabled)
 }
 
 int qf_insert_mementos(QF *qf, uint64_t key, uint64_t mementos[], uint64_t memento_count, 
-        uint8_t flags)
+                        uint8_t flags)  // NEW IN MEMENTO
 {
     uint32_t new_slot_count = 1 + (memento_count + 1) / 2;
 	// We fill up the CQF up to 95% load factor.
@@ -2720,7 +2746,8 @@ int qf_insert_mementos(QF *qf, uint64_t key, uint64_t mementos[], uint64_t memen
 	return ret;
 }
 
-int64_t qf_insert_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
+int64_t qf_insert_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags)     // NEW IN MEMENTO
+{
 #ifdef DEBUG
     uint64_t occupied_cnt = 0, runend_cnt = 0;
     for (uint32_t i = 0; i < qf->metadata->nblocks; i++) {
@@ -2877,7 +2904,7 @@ int64_t qf_insert_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) 
     return res;
 }
 
-void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags)
+void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags)   // NEW IN MEMENTO
 {
     assert(flags & QF_KEY_IS_HASH);
 
@@ -2952,7 +2979,8 @@ void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags)
     modify_metadata(qf, &qf->metadata->nelts, n);
 }
 
-bool qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
+int32_t qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags)     // NEW IN MEMENTO
+{
 #ifdef DEBUG
     fprintf(stderr, "DELETING SINGLE MEMENTO %lu\n", memento);
 #endif /* DEBUG */
@@ -3034,7 +3062,7 @@ bool qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
 		qf_unlock(qf, hash_bucket_index, /*small*/ true);
 	}
 
-    return handled;
+    return handled ? 0 : QF_DOESNT_EXIST;
 }
 
 // Assumes that the fingerprint has been extended using mementos. If there is no 
@@ -3042,7 +3070,7 @@ bool qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
 // than it.
 __attribute__((always_inline))
 static inline uint64_t lower_bound_mementos_for_fingerprint(const QF *qf, uint64_t pos,
-                                                    uint64_t target_memento)
+                                                            uint64_t target_memento)    // NEW IN MEMENTO
 {
     uint64_t current_memento = GET_MEMENTO(qf, pos);
     uint64_t next_memento = GET_MEMENTO(qf, pos + 1);
@@ -3111,7 +3139,7 @@ static inline uint64_t lower_bound_mementos_for_fingerprint(const QF *qf, uint64
     }
 }
 
-int qf_point_query(const QF *qf, uint64_t key, uint64_t memento, uint8_t flags)
+int qf_point_query(const QF *qf, uint64_t key, uint64_t memento, uint8_t flags)     // NEW IN MEMENTO
 {
 	if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
 		if (qf->metadata->hash_mode == QF_HASH_DEFAULT)
@@ -3198,7 +3226,7 @@ int qf_point_query(const QF *qf, uint64_t key, uint64_t memento, uint8_t flags)
 }
 
 int qf_range_query(const QF *qf, uint64_t l_key, uint64_t l_memento,
-                                  uint64_t r_key, uint64_t r_memento, uint8_t flags)
+                                  uint64_t r_key, uint64_t r_memento, uint8_t flags)    // NEW IN MEMENTO
 {
     const uint64_t orig_l_key = l_key;
     const uint64_t orig_r_key = r_key;
@@ -3480,9 +3508,7 @@ uint64_t qf_get_num_distinct_key_value_pairs(const QF *qf) {
 	return qf->metadata->ndistinct_elts;
 }
 
-/* initialize the iterator at the run corresponding
- * to the position index
- */
+/* Initialize the iterator at the run corresponding to the position index. */
 int64_t qf_iterator_from_position(const QF *qf, QFi *qfi, uint64_t position)
 {
 	if (position == 0xffffffffffffffff) {
@@ -3526,7 +3552,7 @@ int64_t qf_iterator_from_position(const QF *qf, QFi *qfi, uint64_t position)
 	return qfi->current;
 }
 
-int64_t qf_iterator_by_key(const QF *qf, QFi *qfi, uint64_t key, uint8_t flags)
+int64_t qf_iterator_by_key(const QF *qf, QFi *qfi, uint64_t key, uint8_t flags)     // NEW IN MEMENTO
 {
 	if (key >= qf->metadata->range) {
 		qfi->current = 0xffffffffffffffff;
@@ -3605,7 +3631,7 @@ int64_t qf_iterator_by_key(const QF *qf, QFi *qfi, uint64_t key, uint8_t flags)
 	return qfi->current;
 }
 
-static int qfi_get(const QFi *qfi, uint64_t *key, uint64_t *mementos)
+static int qfi_get(const QFi *qfi, uint64_t *key, uint64_t *mementos)   // NEW IN MEMENTO
 {
 	if (qfi_end(qfi))
 		return QFI_INVALID;
@@ -3687,7 +3713,8 @@ static int qfi_get(const QFi *qfi, uint64_t *key, uint64_t *mementos)
 	return res;
 }
 
-int qfi_get_key(const QFi *qfi, uint64_t *key, uint64_t *mementos) {
+int qfi_get_key(const QFi *qfi, uint64_t *key, uint64_t *mementos)  // NEW IN MEMENTO
+{
 	*key = 0;
 	int ret = qfi_get(qfi, key, mementos);
 	if (ret == 0) {
@@ -3703,12 +3730,14 @@ int qfi_get_key(const QFi *qfi, uint64_t *key, uint64_t *mementos) {
 	return ret;
 }
 
-int qfi_get_hash(const QFi *qfi, uint64_t *key, uint64_t *mementos) {
+int qfi_get_hash(const QFi *qfi, uint64_t *key, uint64_t *mementos)     // NEW IN MEMENTO
+{
 	*key = 0;
 	return qfi_get(qfi, key, mementos);
 }
 
-int qfi_next(QFi *qfi) {
+int qfi_next(QFi *qfi)  // NEW IN MEMENTO
+{
 	if (qfi_end(qfi))
 		return QFI_INVALID;
 	else {
@@ -4013,5 +4042,7 @@ uint64_t qf_magnitude(const QF *qf)
 	return sqrt(qf_inner_product(qf, qf));
 }
 #endif /* QF_ITERATOR */
+
+
 
 
