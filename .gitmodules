@@ -19,3 +19,6 @@
 [submodule "bench/include/Oasis-RangeFilter"]
 	path = bench/include/Oasis-RangeFilter
 	url = https://github.com/Woooooow-Pro/Oasis-RangeFilter.git
+[submodule "tests/doctest"]
+	path = tests/doctest
+	url = https://github.com/doctest/doctest.git

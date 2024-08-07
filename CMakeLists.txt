@@ -10,6 +10,7 @@ option(USE_BOOST "Use the Boost library" ON)
 option(USE_MULTI_THREADED "Use multi-threaded version of the library" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 else()
@@ -19,6 +20,14 @@ endif ()
 add_library(mementolib STATIC ./src/memento.c ./src/hashutil.c)
 target_include_directories(mementolib PUBLIC ./include)
 target_compile_options(mementolib PUBLIC -Ofast -msse4.2 -D__SSE4_2_)
+
+# Memento CPP Implementation
+set(BITHACKING_COMPILE_FLAGS -Ofast -march=native -D__SSE4_2_)
+#set(BITHACKING_COMPILE_FLAGS -Ofast -mbmi2 -msse4.2 -D__SSE4_2_)
+add_library(MementoCPPLib STATIC ./include/memento.hpp)
+set_target_properties(MementoCPPLib PROPERTIES LINKER_LANGUAGE CXX)
+target_include_directories(MementoCPPLib PUBLIC ./include)
+target_compile_options(MementoCPPLib PUBLIC ${BITHACKING_COMPILE_FLAGS})
 
 if (BUILD_TESTS)
     message(STATUS "Building tests")

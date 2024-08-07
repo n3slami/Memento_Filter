@@ -2081,7 +2081,7 @@ static inline uint64_t number_of_slots_used_for_memento_list(const QF *qf,
 }
 
 __attribute__((always_inline))
-static inline uint64_t next_matching_fingerprint_in_run(const QF *qf, uint64_t pos,
+static inline int64_t next_matching_fingerprint_in_run(const QF *qf, uint64_t pos,
         const uint64_t fingerprint)     // NEW IN MEMENTO
 {
     uint64_t current_fingerprint, current_memento;
