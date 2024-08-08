@@ -3581,8 +3581,7 @@ int64_t qf_iterator_by_key(const QF *qf, QFi *qfi, uint64_t key, uint8_t flags) 
                                                     << (32 - orig_quotient_size)), orig_nslots);
 	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(qf->metadata->fingerprint_bits))
-                                        | (1ULL << qf->metadata->fingerprint_bits);
+	const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(qf->metadata->fingerprint_bits);
     
     bool target_found = false;
 	// If a run starts at "position" move the iterator to point it to the

@@ -15,11 +15,16 @@
 // TODO: Issue in the original code with insert_mementos when there are two
 // mementos and the smallest and largest mementos are the same: uses 3 slots,
 // which is incorrect.
+// TODO: Original code makes uses the expandable implementation in the
+// qf_iterator_by_key function.
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <iostream>
+#include <limits>
 #include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -33,6 +38,7 @@
 #include <fcntl.h>
 #include <utility>
 #include <immintrin.h>
+#include <vector>
 
 /******************************************************************
  * Hash functions used in Memento filter.                         *
@@ -50,7 +56,7 @@ static uint64_t MurmurHash64A(const void *key, int32_t len, uint32_t seed) {
 	uint64_t h = seed ^ (len * m);
 
 	const uint64_t * data = (const uint64_t *)key;
-	const uint64_t * end = data + (len/8);
+	const uint64_t * end = data + (len / 8);
 
 	while(data != end)
 	{
@@ -806,58 +812,83 @@ public:
     static constexpr int32_t err_couldnt_lock = -2;
     static constexpr int32_t err_doesnt_exist = -3;
 
+    class hash_iterator {
+        friend class Memento;
+    public:
+        hash_iterator(const Memento &filter): 
+            filter{filter} {};
+        hash_iterator(const hash_iterator& other) = default;
+        hash_iterator(hash_iterator&& other) noexcept;
+        hash_iterator& operator=(const hash_iterator& other);
+        hash_iterator& operator=(hash_iterator&& other) noexcept;
+        hash_iterator& operator++();
+        hash_iterator operator++(int);
+        ~hash_iterator();
+
+        bool operator==(const hash_iterator& rhs) const;
+        bool operator!=(const hash_iterator& rhs) const;
+        int32_t get(uint64_t& key, uint64_t *mementos=nullptr) const;
+
+    private:
+        bool is_at_runend() const;
+
+        const Memento &filter;
+        uint64_t run = 0;                   /**< The canonical slot of the current run. */
+        uint64_t current = 0;               /**< The current slot in the run. */
+        uint64_t cur_start_index = 0;       /**< The starting slot of the current cluster. */
+        uint16_t cur_length = 0;            /**< The length of the current cluster. */
+        uint32_t num_clusters = 0;          /**< The number of traversed clusters. */
+        cluster_data *c_info = nullptr;     /**< A list with information about the filter's clusters. */
+    };
+
     class iterator {
         friend class Memento;
     public:
-        iterator& operator=(const iterator& other);
-        iterator& operator=(iterator&& other) noexcept;
+        iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key);
+        iterator(const Memento& filter):
+            filter{filter},
+            cur_prefix{std::numeric_limits<uint64_t>::max()},
+            it{filter.hash_end()} {}
+        iterator& operator=(const iterator &other);
+        uint64_t operator*();
         iterator& operator++();
         iterator operator++(int);
         bool operator==(const iterator& rhs) const;
         bool operator!=(const iterator& rhs) const;
 
     private:
-        iterator();
-        uint64_t run;
-        uint64_t current;
-        uint64_t cur_start_index;
-        uint16_t cur_length;
-        uint32_t num_clusters;
-        cluster_data *c_info;
+        void fetch_matching_prefix_mementos();
+
+        const Memento& filter;
+        uint64_t l_key;
+        uint64_t r_key;
+        uint64_t cur_prefix = 0;
+        Memento::hash_iterator it;
+        uint64_t cur_ind = 0;
+        std::vector<uint64_t> mementos;
     };
 
-    class hash_iterator {
-        friend class Memento;
-    public:
-        hash_iterator& operator++();
-        hash_iterator operator++(int);
-        bool operator==(const hash_iterator& rhs) const;
-        bool operator!=(const hash_iterator& rhs) const;
-        int32_t get(uint64_t& key, uint64_t *mementos) const;
+    /**
+     * Initialize a key iterator returning keys in the range from `l_key` to
+     * `r_key`, inclusive.
+     *
+     * @param l_key - The left end-point of the iteration range.
+     * @param r_key - The right end-point of the iteration range.
+     * @returns The corresponding iterator.
+     */
+	iterator begin(uint64_t l_key=0,
+                   uint64_t r_key=std::numeric_limits<uint64_t>::max()) const;
 
-    private:
-        hash_iterator(const Memento &filter): 
-            filter{filter} 
-        {};
-        const Memento &filter;
-        uint64_t run;               /**< The canonical slot of the current run. */
-        uint64_t current;           /**< The current slot in the run. */
-        uint64_t cur_start_index;   /**< The starting slot of the current cluster. */
-        uint16_t cur_length;        /**< The length of the current cluster. */
-        uint32_t num_clusters;      /**< The number of traversed clusters. */
-        cluster_data *c_info;       /**< A list with information about the filter's clusters. */
-    };
+	iterator end() const;
 
-    hash_iterator hash_begin() const;
-    hash_iterator hash_end() const;
-    
+
     /**
      * Initialize an iterator starting at the first run after `position`.
      *
      * @param position - The position in the filter to initialize the iterator from.
      * @returns The corresponding iterator.
      */
-	hash_iterator hash_begin(uint64_t position) const;
+	hash_iterator hash_begin(uint64_t position=0) const;
 
 	/**
      * Initialize an iterator and position it at the smallest index containing
@@ -870,6 +901,8 @@ public:
      * @returns The corresponding iterator.
 	 */
     hash_iterator hash_begin(uint64_t key, uint8_t flags) const;
+
+    hash_iterator hash_end() const;
 
 private:
     qfruntime *runtimedata;
@@ -1318,7 +1351,7 @@ inline void Memento::memento_unlock(uint64_t hash_bucket_index, bool small) {
 
 inline void Memento::modify_metadata(uint64_t *metadata, int32_t cnt) {
 #ifdef LOG_WAIT_TIME
-    spin_lock(qf, &runtimedata->metadata_lock, runtimedata->num_locks, flag_wait_for_lock);
+    spin_lock(&runtimedata->metadata_lock, runtimedata->num_locks, flag_wait_for_lock);
 #else
     spin_lock(&runtimedata->metadata_lock, flag_wait_for_lock);
 #endif
@@ -1526,7 +1559,7 @@ inline void Memento::shift_slots(int64_t first, uint64_t last, uint64_t distance
     int64_t i, j;
     // Simple implementation:
     // for (i = last; i >= first; i--)
-    //     set_slot(qf, i + distance, get_slot(qf, i));
+    //     set_slot(i + distance, get_slot(i));
 
     // Faster implementation? It follows a very similar logic as the macros
     // implemented at the start of this file. More specifically, it moves
@@ -2625,7 +2658,7 @@ inline Memento::Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bit
 	runtimedata->metadata_lock = 0;
 	runtimedata->locks = reinterpret_cast<volatile int32_t *>(new volatile int32_t[runtimedata->num_locks]);
 #ifdef LOG_WAIT_TIME
-	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[qf->runtimedata->num_locks + 1]);
+	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[runtimedata->num_locks + 1]);
 #endif
 }
 
@@ -2661,9 +2694,8 @@ inline Memento::Memento(const Memento& other) {
         runtimedata->locks[i] = other.runtimedata->locks[i];
 
 #ifdef LOG_WAIT_TIME
-	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[qf->runtimedata->num_locks + 1]);
-    memcpy(metadata->wait_times, memento.metadata->wait_times,
-            sizeof(wait_time_data) * (qf->runtimedata->num_locks + 1));
+	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[runtimedata->num_locks + 1]);
+    memcpy(metadata->wait_times, memento.metadata->wait_times, sizeof(wait_time_data) * (runtimedata->num_locks + 1));
 #endif
 }
 
@@ -2700,9 +2732,8 @@ inline Memento& Memento::operator=(const Memento& other) {
         runtimedata->locks[i] = other.runtimedata->locks[i];
 
 #ifdef LOG_WAIT_TIME
-	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[qf->runtimedata->num_locks + 1]);
-    memcpy(metadata->wait_times, memento.metadata->wait_times,
-            sizeof(wait_time_data) * (qf->runtimedata->num_locks + 1));
+	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[runtimedata->num_locks + 1]);
+    memcpy(metadata->wait_times, memento.metadata->wait_times, sizeof(wait_time_data) * (runtimedata->num_locks + 1));
 #endif
     return *this;
 }
@@ -3421,6 +3452,137 @@ inline int32_t Memento::range_query(uint64_t l_key, uint64_t l_memento,
 }
 
 
+inline Memento::iterator Memento::begin(uint64_t l_key, uint64_t r_key) const {
+    return iterator(*this, l_key, r_key);
+}
+
+
+inline Memento::iterator Memento::end() const {
+    return iterator(*this);
+}
+
+
+inline Memento::iterator::iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key):
+        filter{filter},
+        l_key{l_key},
+        r_key{r_key},
+        cur_prefix{l_key >> filter.get_num_memento_bits()},
+        it{filter.hash_begin(cur_prefix, Memento::flag_no_lock)},
+        cur_ind{0} {
+    const uint64_t l_memento = l_key & BITMASK(filter.get_num_memento_bits());
+    const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
+    const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
+
+    fetch_matching_prefix_mementos();
+    cur_ind = std::lower_bound(mementos.begin(), mementos.end(), l_memento) - mementos.begin();
+    while (cur_ind == mementos.size() && cur_prefix <= r_prefix) {
+        cur_prefix++;
+        fetch_matching_prefix_mementos();
+        cur_ind = 0;
+    }
+    if (cur_prefix > r_prefix || 
+            (cur_prefix <= r_prefix && (cur_ind < mementos.size() && mementos[cur_ind] > r_memento)))
+        cur_prefix = std::numeric_limits<uint64_t>::max();
+}
+
+
+inline Memento::iterator& Memento::iterator::operator=(const iterator &other) {
+    assert(&filter == &other.filter);
+    l_key = other.l_key;
+    r_key = other.r_key;
+    cur_prefix = other.cur_prefix;
+    it = other.it;
+    cur_ind = other.cur_ind;
+    mementos = other.mementos;
+    return *this;
+}
+
+
+inline void Memento::iterator::fetch_matching_prefix_mementos() {
+    it = filter.hash_begin(cur_prefix, Memento::flag_no_lock);
+    uint64_t cur_prefix_hash = MurmurHash64A(&cur_prefix, sizeof(cur_prefix), filter.get_hash_seed());
+    const uint32_t bucket_index_hash_size = filter.get_bucket_index_hash_size();
+    const uint32_t orig_quotient_size = filter.metadata->original_quotient_bits;
+    const uint64_t orig_nslots = filter.metadata->nslots >> (filter.metadata->key_bits 
+                                                             - filter.metadata->fingerprint_bits 
+                                                             - filter.metadata->original_quotient_bits);
+	const uint64_t fast_reduced_part = fast_reduce(((cur_prefix_hash & BITMASK(orig_quotient_size)) 
+                                                    << (32 - orig_quotient_size)), orig_nslots);
+	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+                        | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+	const uint64_t hash_fingerprint = (cur_prefix_hash >> bucket_index_hash_size) & BITMASK(filter.metadata->fingerprint_bits);
+    cur_prefix_hash = (hash_fingerprint << bucket_index_hash_size) | hash_bucket_index;
+    
+    mementos.clear();
+    uint64_t it_hash;
+    while (it != filter.hash_end()) {
+        const uint32_t memento_count = it.get(it_hash);
+        if (it_hash != cur_prefix_hash)
+            break;
+        const uint32_t old_list_length = mementos.size();
+        mementos.resize(old_list_length + memento_count);
+        it.get(it_hash, mementos.data() + old_list_length);
+        if (it.is_at_runend())
+            break;
+        ++it;
+    }
+    std::sort(mementos.begin(), mementos.end());
+}
+
+
+inline uint64_t Memento::iterator::operator*() {
+    assert(cur_ind < mementos.size());
+    return (cur_prefix << filter.get_num_memento_bits()) | mementos[cur_ind];
+}
+
+
+inline Memento::iterator& Memento::iterator::operator++() {
+    if (cur_ind < mementos.size() - 1) {
+        cur_ind++;
+        const uint64_t cur_key = (cur_prefix << filter.get_num_memento_bits())
+                                    | mementos[cur_ind];
+        if (cur_key > r_key)
+            cur_prefix = std::numeric_limits<uint64_t>::max();
+    }
+    else {
+        const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
+        const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
+        cur_ind = 0;
+        do {
+            cur_prefix++;
+            if (cur_prefix > r_prefix)
+                break;
+            fetch_matching_prefix_mementos();
+        } while (cur_ind == mementos.size());
+        if (cur_prefix > r_prefix || 
+                (cur_prefix <= r_prefix && (cur_ind < mementos.size() && mementos[cur_ind] > r_memento)))
+            cur_prefix = std::numeric_limits<uint64_t>::max();
+    }
+    return *this;
+}
+
+
+inline Memento::iterator Memento::iterator::operator++(int) {
+    auto old = *this;
+    operator++();
+    return old;
+}
+
+
+inline bool Memento::iterator::operator==(const iterator& rhs) const {
+    if (&filter != &rhs.filter)
+        return false;
+    if (cur_prefix == std::numeric_limits<uint64_t>::max() && rhs.cur_prefix == std::numeric_limits<uint64_t>::max())
+        return true;
+    return cur_prefix == rhs.cur_prefix && it == rhs.it;
+}
+
+
+inline bool Memento::iterator::operator!=(const iterator& rhs) const {
+    return !(*this == rhs);
+}
+
+
 inline Memento::hash_iterator Memento::hash_begin(uint64_t position) const {
     hash_iterator it(*this);
 	if (position >= metadata->nslots) {
@@ -3445,7 +3607,7 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t position) const {
 	it.current = std::max(position == 0 ? 0 : run_end(position - 1) + 1, position);
 
 #ifdef LOG_CLUSTER_LENGTH
-    it.c_info = new cluster_data[qf->metadata->nslots / 32];
+    it.c_info = new cluster_data[metadata->nslots / 32];
 	it.cur_start_index = position;
 	it.cur_length = 1;
 #endif
@@ -3453,11 +3615,6 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t position) const {
 	if (it.current >= metadata->nslots)
 		it.current = 0XFFFFFFFFFFFFFFFF;
 	return it;
-}
-
-
-inline Memento::hash_iterator Memento::hash_begin() const {
-    return hash_begin(0);
 }
 
 
@@ -3487,8 +3644,7 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t key, uint8_t flags) c
                                                     << (32 - orig_quotient_size)), orig_nslots);
 	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata->fingerprint_bits))
-                                        | (1ULL << metadata->fingerprint_bits);
+	const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata->fingerprint_bits);
     
     bool target_found = false;
 	// If a run starts at "position" move the iterator to point it to the
@@ -3524,7 +3680,7 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t key, uint8_t flags) c
 		}
 		position = block_index * slots_per_block + idx;
 		it.run = position;
-	    it.current = std::max(position == 0 ? 0 : run_end(position-1) + 1, position);
+	    it.current = std::max(position == 0 ? 0 : run_end(position - 1) + 1, position);
 	}
 
 	if (it.current >= metadata->nslots)
@@ -3551,15 +3707,21 @@ inline int32_t Memento::hash_iterator::get(uint64_t& key, uint64_t *mementos) co
         m1 = filter.get_memento(current);
         m2 = filter.get_memento(current + 1);
         if (m1 < m2) {
-            mementos[res++] = m1;
-            mementos[res++] = m2;
+            if (mementos != nullptr) {
+                mementos[res++] = m1;
+                mementos[res++] = m2;
+            }
+            else
+                res += 2;
         }
         else {
             // Mementos stored as sorted list
             const uint64_t memento_bits = filter.metadata->memento_bits;
             const uint64_t max_memento_value = (1ULL << memento_bits) - 1;
 
-            mementos[res++] = m2;
+            if (mementos != nullptr)
+                mementos[res] = m2;
+            res++;
             const uint64_t pos = current + 2;
             uint64_t data = 0;
             int32_t filled_bits = 0;
@@ -3593,15 +3755,21 @@ inline int32_t Memento::hash_iterator::get(uint64_t& key, uint64_t *mementos) co
             for (uint32_t i = 0; i < memento_count; i++) {
                 GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter, data, filled_bits, memento_bits,
                                                      data_bit_pos, data_block_ind);
-                mementos[res++] = data & max_memento_value;
+                if (mementos != nullptr)
+                    mementos[res] = data & max_memento_value;
+                res++;
                 data >>= memento_bits;
                 filled_bits -= memento_bits;
             }
-            mementos[res++] = m1;
+            if (mementos != nullptr)
+                mementos[res] = m1;
+            res++;
         }
     }
     else {
-        mementos[res++] = filter.get_memento(current);
+        if (mementos != nullptr)
+            mementos[res] = filter.get_memento(current);
+        res++;
     }
 
     const uint32_t bucket_index_hash_size = filter.get_bucket_index_hash_size();
@@ -3611,6 +3779,61 @@ inline int32_t Memento::hash_iterator::get(uint64_t& key, uint64_t *mementos) co
                                             << original_quotient_bits);
     key = original_bucket_index | (f1 << bucket_index_hash_size) | bucket_extension;
 	return res;
+}
+
+
+inline Memento::hash_iterator::hash_iterator(hash_iterator&& other) noexcept:
+        filter{other.filter},
+        run{other.run},
+        current{other.current} {
+#ifdef LOG_CLUSTER_LENGTH
+    cur_start_index = other.cur_start_index;
+    cur_length = other.cur_length;
+    c_info = other.c_info;
+    other.c_info = nullptr;
+#endif
+}
+
+inline Memento::hash_iterator& Memento::hash_iterator::operator=(const hash_iterator& other) {
+    assert(&filter == &other.filter);
+    run = other.run;
+    current = other.current;
+#ifdef LOG_CLUSTER_LENGTH
+    cur_start_index = other.cur_start_index;
+    cur_length = other.cur_length;
+    if (c_info == nullptr && other.c_info != nullptr) {
+        c_info = new cluster_data[filter.metadata->nslots / 32];
+        memcpy(c_info, other.c_info, sizeof(cluster_data) * (filter.metadata->nslots / 32));
+    }
+    else if (c_info != nullptr && other.c_info == nullptr) {
+        delete[] c_info;
+        c_info = nullptr;
+    }
+    else if (c_info != nullptr && other.c_info != nullptr)
+        memcpy(c_info, other.c_info, sizeof(cluster_data) * (filter.metadata->nslots / 32));
+#endif
+    return *this;
+}
+
+inline Memento::hash_iterator& Memento::hash_iterator::operator=(hash_iterator&& other) noexcept {
+    assert(&filter == &other.filter);
+    run = other.run;
+    current = other.current;
+#ifdef LOG_CLUSTER_LENGTH
+    cur_start_index = other.cur_start_index;
+    cur_length = other.cur_length;
+    if (c_info != nullptr)
+        delete c_info;
+    c_info = other.c_info;
+    other.c_info = nullptr;
+#endif
+    return *this;
+}
+
+inline Memento::hash_iterator::~hash_iterator() {
+#ifdef LOG_CLUSTER_LENGTH
+    delete[] c_info;
+#endif
 }
 
 
@@ -3681,6 +3904,16 @@ inline Memento::hash_iterator Memento::hash_iterator::operator++(int) {
     auto old = *this;
     operator++();
     return old;
+}
+
+inline bool Memento::hash_iterator::is_at_runend() const {
+    if (filter.is_runend(current))
+        return true;
+    uint64_t current_memento = filter.get_memento(current);
+    uint64_t next_memento = filter.get_memento(current + 1);
+    if (current_memento < next_memento)
+        return false;
+    return filter.is_runend(current + filter.number_of_slots_used_for_memento_list(current + 2) + 1);
 }
 
 

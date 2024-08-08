@@ -9,7 +9,6 @@
 #include <random>
 #include <set>
 #include <tuple>
-#include <utility>
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 
 #include "memento.hpp"
@@ -49,7 +48,7 @@ TEST_SUITE("standard memento") {
         const uint32_t key_bits = 20;
         const uint32_t memento_bits = 5;
 
-        Memento memento(n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed);
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
     }
 
     TEST_CASE("inserts") {
@@ -64,7 +63,7 @@ TEST_SUITE("standard memento") {
         const uint32_t memento_bits = 5;
 
         SUBCASE("monte-carlo no hashing") {
-            Memento memento(n_slots, key_bits, memento_bits, Memento::hashmode::None, seed);
+            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::None, seed};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
             const uint8_t flags = Memento::flag_key_is_hash | Memento::flag_no_lock;
             for (int32_t i = 0; i < n_elements; i++) {
@@ -84,7 +83,7 @@ TEST_SUITE("standard memento") {
 
 
         SUBCASE("monte-carlo single insert") {
-            Memento memento(n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed);
+            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
             const uint8_t flags = Memento::flag_no_lock;
             for (int32_t i = 0; i < n_elements; i++) {
@@ -105,7 +104,7 @@ TEST_SUITE("standard memento") {
 
 
         SUBCASE("monte-carlo list insert") {
-            Memento memento(n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed);
+            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
             const uint8_t flags = Memento::flag_no_lock;
 
@@ -129,6 +128,133 @@ TEST_SUITE("standard memento") {
                     check_set.insert({bucket_index, fingerprint, memento});
             }
             assert_memento_contents(check_set, memento);
+        }
+    }
+
+
+    TEST_CASE("queries") {
+        const uint32_t n_elements = 1000000;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor + 10000;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+
+        SUBCASE("point: no false negatives") {
+        }
+
+
+        SUBCASE("point: false positive rate") {
+        }
+
+
+        SUBCASE("range: no false negatives") {
+        }
+
+        SUBCASE("range: false positive rate") {
+        }
+    }
+
+    TEST_CASE("iterator") {
+        const uint32_t n_elements = 1000;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+
+        uint64_t key_prefix = 100;
+        std::vector<uint64_t> mementos {1, 2, 3, 4, 5, 6, 7};
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+        memento.insert(key_prefix, 20, Memento::flag_no_lock);
+        mementos.clear();
+        for (int32_t i = 25; i < 31; i++)
+            mementos.push_back(i);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+
+        SUBCASE("single partition") {
+            const uint64_t check_keys[14] = {3201, 3202, 3203, 3204, 3205,
+                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230};
+            const uint64_t l = (100ULL << memento_bits) | 0ULL;
+            const uint64_t r = (100ULL << memento_bits) | BITMASK(memento_bits);
+            auto it = memento.begin(l, r);
+            for (int32_t i = 0; i < 14; i++) {
+                REQUIRE_NE(it, memento.end());
+                REQUIRE_EQ(*it, check_keys[i]);
+                ++it;
+            }
+            REQUIRE_EQ(it, memento.end());
+        }
+
+        SUBCASE("single partition: skip first and last mementos") {
+            const uint64_t check_keys[11] = {3203, 3204, 3205, 3206, 3207,
+                3220, 3225, 3226, 3227, 3228, 3229};
+            const uint64_t l = (100ULL << memento_bits) | 3ULL;
+            const uint64_t r = (100ULL << memento_bits) | 29ULL;
+            auto it = memento.begin(l, r);
+            for (int32_t i = 0; i < 11; i++) {
+                REQUIRE_NE(it, memento.end());
+                REQUIRE_EQ(*it, check_keys[i]);
+                ++it;
+            }
+            REQUIRE_EQ(it, memento.end());
+        }
+
+        key_prefix = 101;
+        mementos.clear();
+        for (int32_t i = 10; i < 24; i++)
+            mementos.push_back(i);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+        mementos.clear();
+        for (int32_t i = 0; i < 30; i += 2)
+            mementos.push_back(i);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+
+        SUBCASE("two partitions") {
+            const uint64_t check_keys[43] = {3201, 3202, 3203, 3204, 3205,
+                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230, 3232,
+                3234, 3236, 3238, 3240, 3242, 3242, 3243, 3244, 3244, 3245,
+                3246, 3246, 3247, 3248, 3248, 3249, 3250, 3250, 3251, 3252,
+                3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260};
+            const uint64_t l = (100ULL << memento_bits) | 0ULL;
+            const uint64_t r = (101ULL << memento_bits) | BITMASK(memento_bits);
+            auto it = memento.begin(l, r);
+            for (int32_t i = 0; i < 43; i++) {
+                REQUIRE_NE(it, memento.end());
+                REQUIRE_EQ(*it, check_keys[i]);
+                ++it;
+            }
+            REQUIRE_EQ(it, memento.end());
+        }
+
+        key_prefix = 103;
+        mementos.clear();
+        for (int32_t i = 1; i < 32; i += 3)
+            mementos.push_back(i);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+
+        SUBCASE("five partitions with two gaps") {
+            const uint64_t check_keys[54] = {3201, 3202, 3203, 3204, 3205,
+                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230, 3232,
+                3234, 3236, 3238, 3240, 3242, 3242, 3243, 3244, 3244, 3245,
+                3246, 3246, 3247, 3248, 3248, 3249, 3250, 3250, 3251, 3252,
+                3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260, 3297, 3300,
+                3303, 3306, 3309, 3312, 3315, 3318, 3321, 3324, 3327};
+            const uint64_t l = (100ULL << memento_bits) | 0ULL;
+            const uint64_t r = (103ULL << memento_bits) | BITMASK(memento_bits);
+            auto it = memento.begin(l, r);
+            for (int32_t i = 0; i < 54; i++) {
+                REQUIRE_NE(it, memento.end());
+                REQUIRE_EQ(*it, check_keys[i]);
+                ++it;
+            }
+            REQUIRE_EQ(it, memento.end());
         }
     }
 }
