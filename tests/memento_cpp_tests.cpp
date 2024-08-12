@@ -14,7 +14,7 @@
 #include "memento.hpp"
 #include "doctest.h"
 
-
+namespace memento {
 void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>>& hash_set,
                              Memento& filter) {
     std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> filter_hash_set;
@@ -258,5 +258,6 @@ TEST_SUITE("standard memento") {
         }
     }
 }
+} // namespace memento
 
 
