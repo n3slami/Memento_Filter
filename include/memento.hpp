@@ -606,8 +606,11 @@ public:
     ~Memento();
     Memento(const Memento& other);
     Memento(Memento&& other) noexcept;
+    explicit Memento();
     Memento& operator=(const Memento& other);
     Memento& operator=(Memento&& other) noexcept;
+
+    void set_from_buffer(char* src);
 
     void debug_dump_block(uint64_t i) const;
 
@@ -757,6 +760,11 @@ public:
 
 	/** Reset the Memento filter instance to an empty filter. */
 	void reset();
+
+    uint64_t serialized_size() const;
+    char* serialize() const;
+
+    static Memento* deserialize(char* src);
 
 	/* Hashing info */
 	hashmode get_hashmode() const {
@@ -2600,6 +2608,11 @@ inline int32_t Memento::insert_mementos(const __uint128_t hash, const uint64_t m
     return ret_distance;
 }
 
+// used in deserialize
+inline Memento::Memento() {
+    runtimedata_ = new qfruntime;
+}
+
 
 inline Memento::Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bits,
                         hashmode hash_mode, uint32_t seed, const uint64_t orig_quotient_bit_cnt) {
@@ -2749,6 +2762,15 @@ inline Memento& Memento::operator=(Memento&& other) noexcept {
     return *this;
 }
 
+inline void Memento::set_from_buffer(char* src) {
+    qfmetadata* metadata = reinterpret_cast<qfmetadata *>(src);
+    uint32_t total_num_bytes = metadata->total_size_in_bytes;
+    uint8_t *buffer = new uint8_t[total_num_bytes] {};
+    memcpy(buffer, src, sizeof(qfmetadata));
+
+    metadata_ = reinterpret_cast<qfmetadata *>(buffer);
+    blocks_ = reinterpret_cast<qfblock *>(metadata_ + 1);
+}
 
 inline void Memento::reset() {
         metadata_->nelts = 0;
@@ -2760,6 +2782,25 @@ inline void Memento::reset() {
 #endif
 	memset(blocks_, 0, metadata_->nblocks *
             (sizeof(qfblock) + slots_per_block_ * metadata_->bits_per_slot / 8));
+}
+
+inline char* Memento::serialize() const {
+    uint64_t size = serialized_size();
+    char *data = new char[size];
+    uint8_t *buffer = reinterpret_cast<uint8_t *>(metadata_);
+    memcpy(data, buffer, size);
+    return data;
+}
+
+inline Memento* Memento::deserialize(char* src) {
+    Memento* memento = new Memento();
+    memento->set_from_buffer(src);
+    return memento;
+}
+
+
+inline uint64_t Memento::serialized_size() const {
+    return metadata_->total_size_in_bytes;
 }
 
 

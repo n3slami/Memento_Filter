@@ -257,6 +257,33 @@ TEST_SUITE("standard memento") {
             REQUIRE_EQ(it, memento.end());
         }
     }
+
+    TEST_CASE("serialize & deserialize") {
+        const uint32_t n_elements = 1000;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+
+        // serialize
+        char* serialized = memento.serialize();
+
+        // deserialize
+        Memento* memento_deserialized = Memento::deserialize(serialized);
+
+        // assert they are equal
+        REQUIRE_EQ(memento.get_num_memento_bits(), memento_deserialized->get_num_memento_bits());
+        REQUIRE_EQ(memento.get_num_fingerprint_bits(), memento_deserialized->get_num_fingerprint_bits());
+        REQUIRE_EQ(memento.get_bucket_index_hash_size(), memento_deserialized->get_bucket_index_hash_size());
+        REQUIRE_EQ(memento.count_keys(), memento_deserialized->count_keys());
+        REQUIRE_EQ(memento.size_in_bytes(), memento_deserialized->size_in_bytes());
+        REQUIRE_EQ(memento.count_distinct_prefixes(), memento_deserialized->count_distinct_prefixes());
+        REQUIRE_EQ(memento.count_slots(), memento_deserialized->count_slots());
+    }
 }
 } // namespace memento
 
