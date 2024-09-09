@@ -606,7 +606,7 @@ public:
     ~Memento();
     Memento(const Memento& other);
     Memento(Memento&& other) noexcept;
-    explicit Memento();
+    explicit Memento(char* src);
     Memento& operator=(const Memento& other);
     Memento& operator=(Memento&& other) noexcept;
 
@@ -2609,8 +2609,22 @@ inline int32_t Memento::insert_mementos(const __uint128_t hash, const uint64_t m
 }
 
 // used in deserialize
-inline Memento::Memento() {
+inline Memento::Memento(char* src) {
+    // get the total size to deserialize
+    qfmetadata* metadata = reinterpret_cast<qfmetadata *>(src);
+    uint32_t total_num_bytes = metadata->total_size_in_bytes;
+    uint8_t *buffer = new uint8_t[total_num_bytes] {};
+    memcpy(buffer, src, total_num_bytes);
+
+    metadata_ = reinterpret_cast<qfmetadata *>(buffer);
+    blocks_ = reinterpret_cast<qfblock *>(metadata_ + 1);
+
     runtimedata_ = new qfruntime;
+    runtimedata_->num_locks = (metadata_->xnslots / num_slots_to_lock_) + 2;
+
+    /* initialize all the locks to 0 */
+    runtimedata_->metadata_lock = 0;
+    runtimedata_->locks = reinterpret_cast<volatile int32_t *>(new volatile int32_t[runtimedata_->num_locks]);
 }
 
 
@@ -2762,16 +2776,6 @@ inline Memento& Memento::operator=(Memento&& other) noexcept {
     return *this;
 }
 
-inline void Memento::set_from_buffer(char* src) {
-    qfmetadata* metadata = reinterpret_cast<qfmetadata *>(src);
-    uint32_t total_num_bytes = metadata->total_size_in_bytes;
-    uint8_t *buffer = new uint8_t[total_num_bytes] {};
-    memcpy(buffer, src, sizeof(qfmetadata));
-
-    metadata_ = reinterpret_cast<qfmetadata *>(buffer);
-    blocks_ = reinterpret_cast<qfblock *>(metadata_ + 1);
-}
-
 inline void Memento::reset() {
         metadata_->nelts = 0;
         metadata_->ndistinct_elts = 0;
@@ -2787,15 +2791,9 @@ inline void Memento::reset() {
 inline char* Memento::serialize() const {
     uint64_t size = serialized_size();
     char *data = new char[size];
-    uint8_t *buffer = reinterpret_cast<uint8_t *>(metadata_);
+    char *buffer = reinterpret_cast<char *>(metadata_);
     memcpy(data, buffer, size);
     return data;
-}
-
-inline Memento* Memento::deserialize(char* src) {
-    Memento* memento = new Memento();
-    memento->set_from_buffer(src);
-    return memento;
 }
 
 
@@ -2991,6 +2989,7 @@ inline int64_t Memento::insert(uint64_t key, uint64_t memento, uint8_t flags) {
 }
 
 inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flags) {
+    (void)(flags); // Unused
     assert(flags & flag_key_is_hash);
 
     const uint64_t fingerprint_mask = BITMASK(metadata_->fingerprint_bits);
