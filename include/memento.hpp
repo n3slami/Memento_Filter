@@ -854,6 +854,7 @@ public:
         friend class Memento;
     public:
         iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key);
+        iterator(const Memento& filter, const uint64_t l_prefix, const uint64_t l_memento, const uint64_t r_prefix, const uint64_t r_memento);
         iterator(const Memento& filter):
             filter_{filter},
             cur_prefix_{std::numeric_limits<uint64_t>::max()},
@@ -861,6 +862,7 @@ public:
         iterator(const iterator& other);
         iterator& operator=(const iterator &other);
         uint64_t operator*();
+        uint64_t get_memento();
         iterator& operator++();
         iterator operator++(int);
         bool operator==(const iterator& rhs) const;
@@ -888,6 +890,11 @@ public:
      */
 	iterator begin(uint64_t l_key=0,
                    uint64_t r_key=std::numeric_limits<uint64_t>::max()) const;
+
+        iterator begin(uint64_t l_prefix,
+                       uint64_t l_memento,
+                       uint64_t r_prefix,
+                       uint64_t r_memento) const;
 
 	iterator end() const;
 
@@ -3491,6 +3498,13 @@ inline int32_t Memento::range_query(uint64_t l_key, uint64_t l_memento,
     }
 }
 
+inline Memento::iterator Memento::begin(const uint64_t l_prefix,
+                                        const uint64_t l_memento,
+                                        const uint64_t r_prefix,
+                                        const uint64_t r_memento) const {
+  return iterator(*this, l_prefix, l_memento, r_prefix, r_memento);
+}
+
 
 inline Memento::iterator Memento::begin(uint64_t l_key, uint64_t r_key) const {
     return iterator(*this, l_key, r_key);
@@ -3501,6 +3515,28 @@ inline Memento::iterator Memento::end() const {
     return iterator(*this);
 }
 
+inline Memento::iterator::iterator(const Memento& filter,
+                                   const uint64_t l_prefix,
+                                   const uint64_t l_memento,
+                                   const uint64_t r_prefix,
+                                   const uint64_t r_memento):
+                                  filter_{filter},
+                                  l_key_{(l_prefix << filter.get_num_memento_bits()) | l_memento},
+                                  r_key_{(r_prefix << filter.get_num_memento_bits()) | r_memento},
+                                  cur_prefix_{l_prefix},
+                                  it_{filter.hash_begin(cur_prefix_, Memento::flag_no_lock)},
+                                  cur_ind_{0} {
+  fetch_matching_prefix_mementos();
+  cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) - mementos_.begin();
+  while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
+    cur_prefix_++;
+    fetch_matching_prefix_mementos();
+    cur_ind_ = 0;
+  }
+  if (cur_prefix_ > r_prefix ||
+      (cur_prefix_ <= r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
+    cur_prefix_ = std::numeric_limits<uint64_t>::max();
+}
 
 inline Memento::iterator::iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key):
         filter_{filter},
@@ -3569,6 +3605,10 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
     std::sort(mementos_.begin(), mementos_.end());
 }
 
+inline uint64_t Memento::iterator::get_memento() {
+    assert(cur_ind_ < mementos_.size());
+    return mementos_[cur_ind_];
+}
 
 inline uint64_t Memento::iterator::operator*() {
     assert(cur_ind_ < mementos_.size());
