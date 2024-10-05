@@ -863,6 +863,7 @@ public:
         iterator& operator=(const iterator &other);
         uint64_t operator*();
         uint64_t get_memento();
+        uint64_t get_curr_prefix();
         iterator& operator++();
         iterator operator++(int);
         bool operator==(const iterator& rhs) const;
@@ -3608,6 +3609,10 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
 inline uint64_t Memento::iterator::get_memento() {
     assert(cur_ind_ < mementos_.size());
     return mementos_[cur_ind_];
+}
+
+inline uint64_t Memento::iterator::get_curr_prefix() {
+  return cur_prefix_;
 }
 
 inline uint64_t Memento::iterator::operator*() {
