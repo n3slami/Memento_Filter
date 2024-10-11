@@ -15,14 +15,15 @@
 // TODO: Issue in the original code with insert_mementos when there are two
 // mementos and the smallest and largest mementos are the same: uses 3 slots,
 // which is incorrect.
-// TODO: Original code makes uses the expandable implementation in the
+// TODO: Original code uses the expandable implementation in the
 // qf_iterator_by_key function.
+// TODO: Original code writes two mementos in a single word. Won't work for
+// large mementos.
 
 #pragma once
 
 #include <algorithm>
 #include <cstdint>
-#include <exception>
 #include <iostream>
 #include <limits>
 #include <stdint.h>
@@ -51,59 +52,59 @@ namespace memento {
  * endian-ness issues if used across multiple platforms.
  */
 static uint64_t MurmurHash64A(const void *key, int32_t len, uint32_t seed) {
-	const uint64_t m = 0xc6a4a7935bd1e995;
-	const int r = 47;
+    const uint64_t m = 0xc6a4a7935bd1e995;
+    const int r = 47;
 
-	uint64_t h = seed ^ (len * m);
+    uint64_t h = seed ^ (len * m);
 
-	const uint64_t * data = (const uint64_t *)key;
-	const uint64_t * end = data + (len / 8);
+    const uint64_t * data = (const uint64_t *)key;
+    const uint64_t * end = data + (len / 8);
 
-	while(data != end)
-	{
-		uint64_t k = *data++;
+    while(data != end)
+    {
+        uint64_t k = *data++;
 
-		k *= m;
-		k ^= k >> r;
-		k *= m;
+        k *= m;
+        k ^= k >> r;
+        k *= m;
 
-		h ^= k;
-		h *= m;
-	}
+        h ^= k;
+        h *= m;
+    }
 
-	const unsigned char * data2 = (const unsigned char*)data;
+    const unsigned char * data2 = (const unsigned char*)data;
 
-	switch(len & 7)
-	{
-		case 7: h ^= (uint64_t)data2[6] << 48; do {} while (0);  /* fallthrough */
-		case 6: h ^= (uint64_t)data2[5] << 40; do {} while (0);  /* fallthrough */
-		case 5: h ^= (uint64_t)data2[4] << 32; do {} while (0);  /* fallthrough */
-		case 4: h ^= (uint64_t)data2[3] << 24; do {} while (0);  /* fallthrough */
-		case 3: h ^= (uint64_t)data2[2] << 16; do {} while (0);  /* fallthrough */
-		case 2: h ^= (uint64_t)data2[1] << 8; do {} while (0); /* fallthrough */
-		case 1: h ^= (uint64_t)data2[0];
-						h *= m;
-	};
+    switch(len & 7)
+    {
+        case 7: h ^= (uint64_t)data2[6] << 48; do {} while (0);  /* fallthrough */
+        case 6: h ^= (uint64_t)data2[5] << 40; do {} while (0);  /* fallthrough */
+        case 5: h ^= (uint64_t)data2[4] << 32; do {} while (0);  /* fallthrough */
+        case 4: h ^= (uint64_t)data2[3] << 24; do {} while (0);  /* fallthrough */
+        case 3: h ^= (uint64_t)data2[2] << 16; do {} while (0);  /* fallthrough */
+        case 2: h ^= (uint64_t)data2[1] << 8; do {} while (0); /* fallthrough */
+        case 1: h ^= (uint64_t)data2[0];
+                h *= m;
+    };
 
-	h ^= h >> r;
-	h *= m;
-	h ^= h >> r;
+    h ^= h >> r;
+    h *= m;
+    h ^= h >> r;
 
-	return h;
+    return h;
 }
 
 /** Thomas Wang's integer hash functions. See
 * <https://gist.github.com/lh3/59882d6b96166dfc3d8d> for a snapshot.
 */
 static uint64_t hash_64(uint64_t key, uint64_t mask) {
-	key = (~key + (key << 21)) & mask; // key = (key << 21) - key - 1;
-	key = key ^ key >> 24;
-	key = ((key + (key << 3)) + (key << 8)) & mask; // key * 265
-	key = key ^ key >> 14;
-	key = ((key + (key << 2)) + (key << 4)) & mask; // key * 21
-	key = key ^ key >> 28;
-	key = (key + (key << 31)) & mask;
-	return key;
+    key = (~key + (key << 21)) & mask; // key = (key << 21) - key - 1;
+    key = key ^ key >> 24;
+    key = ((key + (key << 3)) + (key << 8)) & mask; // key * 265
+    key = key ^ key >> 14;
+    key = ((key + (key << 2)) + (key << 4)) & mask; // key * 21
+    key = key ^ key >> 28;
+    key = (key + (key << 31)) & mask;
+    return key;
 }
 
 /******************************************************************
@@ -232,6 +233,7 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
     { \
     uint64_t byte_pos = bit_pos / 8; \
     uint64_t *p = reinterpret_cast<uint64_t *>(&get_block((block_ind))->slots[byte_pos]); \
+    payload &= BITMASK(filled_bits); \
     memcpy(p, &payload, sizeof(payload)); \
     }
 
@@ -1574,6 +1576,13 @@ inline void Memento::shift_slots(int64_t first, uint64_t last, uint64_t distance
         return;
     }
 
+    /*
+    if (metadata_->memento_bits > 32) {
+        for (int64_t i = last; i >= first; i--)
+            set_slot(i + 1, get_slot(i));
+    }
+    */
+
     int64_t i, j;
     // Simple implementation:
     // for (i = last; i >= first; i--)
@@ -2148,9 +2157,12 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                           metadata_->bits_per_slot, dest_bit_pos,
                                           dest_block_ind);
-                value = (m1 << memento_bits) | 1ULL;
+                value = 1ULL;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          2 * memento_bits, dest_bit_pos, dest_block_ind);
+                                          memento_bits, dest_bit_pos, dest_block_ind);
+                value = m1;
+                APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
+                                          memento_bits, dest_bit_pos, dest_block_ind);
             }
             else if (m2 < new_memento) {
                 value = (f1 << memento_bits) | new_memento;
@@ -2161,9 +2173,12 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                           metadata_->bits_per_slot, dest_bit_pos,
                                           dest_block_ind);
-                value = (m2 << memento_bits) | 1ULL;
+                value = 1ULL;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          2 * memento_bits, dest_bit_pos, dest_block_ind);
+                                          memento_bits, dest_bit_pos, dest_block_ind);
+                value = m2;
+                APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
+                                          memento_bits, dest_bit_pos, dest_block_ind);
             }
             else {
                 value = (f1 << memento_bits) | m2;
@@ -2174,9 +2189,12 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value, 
                                           metadata_->bits_per_slot, dest_bit_pos,
                                           dest_block_ind);
-                value = (new_memento << memento_bits) | 1ULL;
+                value = 1ULL;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          2 * memento_bits, dest_bit_pos, dest_block_ind);
+                                          memento_bits, dest_bit_pos, dest_block_ind);
+                value = new_memento;
+                APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
+                                          memento_bits, dest_bit_pos, dest_block_ind);
             }
 
             if (current_full_prefix)
@@ -2257,7 +2275,7 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
         }
     }
 
-    uint32_t mementos[memento_count + 1];
+    uint64_t mementos[memento_count + 1];
     uint32_t cnt = 0;
     while (cnt < memento_count) {
         GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits, data_bit_pos, data_block_ind);
@@ -2882,46 +2900,46 @@ inline int32_t Memento::insert_mementos(uint64_t key, uint64_t mementos[],
 
 
 inline int64_t Memento::insert(uint64_t key, uint64_t memento, uint8_t flags) {
-	// We fill up the CQF up to 95% load factor.
-	// This is a very conservative check.
-	if (metadata_->noccupied_slots >= metadata_->nslots * 0.95 ||
+    // We fill up the CQF up to 95% load factor.
+    // This is a very conservative check.
+    if (metadata_->noccupied_slots >= metadata_->nslots * 0.95 ||
             metadata_->noccupied_slots + 1 >= metadata_->nslots) {
-		if (metadata_->auto_resize)
-			resize(metadata_->nslots * 2);
-		else
-			return err_no_space;
-	}
+        if (metadata_->auto_resize)
+            resize(metadata_->nslots * 2);
+        else
+            return err_no_space;
+    }
 
-	if (GET_KEY_HASH(flags) != flag_key_is_hash) {
-		if (metadata_->hash_mode == hashmode::Default)
-			key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
-		else if (metadata_->hash_mode == hashmode::Invertible) // Large hash!
-			key = hash_64(key, BITMASK(63));
-	}
+    if (GET_KEY_HASH(flags) != flag_key_is_hash) {
+        if (metadata_->hash_mode == hashmode::Default)
+            key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+        else if (metadata_->hash_mode == hashmode::Invertible) // Large hash!
+            key = hash_64(key, BITMASK(63));
+    }
     const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
-                                                      - metadata_->fingerprint_bits
-                                                      - metadata_->original_quotient_bits);
+            - metadata_->fingerprint_bits
+            - metadata_->original_quotient_bits);
     const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(metadata_->original_quotient_bits))
-                                << (32 - metadata_->original_quotient_bits)), orig_nslots);
+                << (32 - metadata_->original_quotient_bits)), orig_nslots);
     key &= ~BITMASK(metadata_->original_quotient_bits);
     key |= fast_reduced_part;
-	uint64_t hash = key;
+    uint64_t hash = key;
 
-	int64_t res = 0;
+    int64_t res = 0;
     const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
     const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
     const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
-	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
-                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
 
-	if (GET_NO_LOCK(flags) != flag_no_lock) {
-		if (!memento_lock(hash_bucket_index, /*small*/ true, flags))
-			return err_couldnt_lock;
-	}
+    if (GET_NO_LOCK(flags) != flag_no_lock) {
+        if (!memento_lock(hash_bucket_index, /*small*/ true, flags))
+            return err_couldnt_lock;
+    }
 
     uint64_t runend_index = run_end(hash_bucket_index);
     uint64_t runstart_index = hash_bucket_index == 0 ? 0 
-                                : run_end(hash_bucket_index - 1) + 1;
+        : run_end(hash_bucket_index - 1) + 1;
     uint64_t insert_index;
     if (is_occupied(hash_bucket_index)) {
         int64_t fingerprint_pos = runstart_index;
@@ -2989,8 +3007,8 @@ inline int64_t Memento::insert(uint64_t key, uint64_t memento, uint8_t flags) {
         res = insert_index - hash_bucket_index;
     }
 
-	if (GET_NO_LOCK(flags) != flag_no_lock)
-		memento_unlock(hash_bucket_index, /*small*/ true);
+    if (GET_NO_LOCK(flags) != flag_no_lock)
+        memento_unlock(hash_bucket_index, /*small*/ true);
 
     modify_metadata(&metadata_->nelts, 1);
     return res;
@@ -3007,7 +3025,7 @@ inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flag
     uint64_t memento_list[10 * (1ULL << metadata_->memento_bits)];
     uint32_t prefix_set_size = 1;
     memento_list[0] = sorted_hashes[0] & memento_mask;
-	uint64_t current_run = prefix >> metadata_->fingerprint_bits;
+    uint64_t current_run = prefix >> metadata_->fingerprint_bits;
     uint64_t current_pos = current_run, old_pos = 0, next_run;
     uint64_t distinct_prefix_cnt = 0, total_slots_written = 0;
     for (uint64_t i = 1; i < n; i++) {
@@ -3016,7 +3034,7 @@ inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flag
             memento_list[prefix_set_size++] = sorted_hashes[i] & memento_mask;
         else {
             const uint32_t slots_written = write_prefix_set(current_pos, prefix & fingerprint_mask, 
-                                                            memento_list, prefix_set_size);
+                    memento_list, prefix_set_size);
             current_pos += slots_written;
             total_slots_written += slots_written;
             prefix = new_prefix;
@@ -3026,13 +3044,13 @@ inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flag
             next_run = prefix >> metadata_->fingerprint_bits;
             if (current_run != next_run) {
                 METADATA_WORD(occupieds, current_run) |= 
-                                (1ULL << ((current_run % slots_per_block_) % 64));
+                    (1ULL << ((current_run % slots_per_block_) % 64));
                 METADATA_WORD(runends, (current_pos - 1)) |= 
-                                (1ULL << (((current_pos - 1) % slots_per_block_) % 64));
+                    (1ULL << (((current_pos - 1) % slots_per_block_) % 64));
                 for (uint64_t block_ind = current_run / slots_per_block_ + 1;
                         block_ind <= (current_pos - 1) / slots_per_block_; block_ind++) {
                     const uint32_t cnt = current_pos - (block_ind * slots_per_block_ < old_pos ? old_pos
-                                                                           : block_ind * slots_per_block_);
+                            : block_ind * slots_per_block_);
                     if (get_block(block_ind)->offset + cnt < BITMASK(8 * sizeof(blocks_[0].offset)))
                         get_block(block_ind)->offset += cnt;
                     else
@@ -3045,7 +3063,7 @@ inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flag
         }
     }
     const uint32_t slots_written = write_prefix_set(current_pos, prefix & fingerprint_mask, 
-                                                    memento_list, prefix_set_size);
+            memento_list, prefix_set_size);
     current_pos += slots_written;
     total_slots_written += slots_written;
     METADATA_WORD(occupieds, current_run) |= (1ULL << ((current_run % slots_per_block_) % 64));
@@ -3053,7 +3071,7 @@ inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flag
     for (uint64_t block_ind = current_run / slots_per_block_ + 1;
             block_ind <= (current_pos - 1) / slots_per_block_; block_ind++) {
         const uint32_t cnt = current_pos - (block_ind * slots_per_block_ < old_pos ? old_pos
-                                                            : block_ind * slots_per_block_);
+                : block_ind * slots_per_block_);
         if (get_block(block_ind)->offset + cnt < BITMASK(8 * sizeof(blocks_[0].offset)))
             get_block(block_ind)->offset += cnt;
         else
@@ -3066,30 +3084,30 @@ inline void Memento::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flag
 }
 
 inline int32_t Memento::delete_single(uint64_t key, uint64_t memento, uint8_t flags) {
-	if (GET_KEY_HASH(flags) != flag_key_is_hash) {
-		if (metadata_->hash_mode == hashmode::Default)
-			key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
-		else if (metadata_->hash_mode == hashmode::Invertible) // Large hash!
-			key = hash_64(key, BITMASK(63));
-	}
+    if (GET_KEY_HASH(flags) != flag_key_is_hash) {
+        if (metadata_->hash_mode == hashmode::Default)
+            key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+        else if (metadata_->hash_mode == hashmode::Invertible) // Large hash!
+            key = hash_64(key, BITMASK(63));
+    }
     const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
     const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
     const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
-                                                      - metadata_->fingerprint_bits
-                                                      - metadata_->original_quotient_bits);
+            - metadata_->fingerprint_bits
+            - metadata_->original_quotient_bits);
     const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size)) 
-                                << (32 - orig_quotient_size)), orig_nslots);
+                << (32 - orig_quotient_size)), orig_nslots);
     key &= ~(BITMASK(metadata_->original_quotient_bits));
     key |= fast_reduced_part;
-	uint64_t hash = key;
-	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
-                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
+    uint64_t hash = key;
+    const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
 
-	if (GET_NO_LOCK(flags) != flag_no_lock) {
-		if (!memento_lock(hash_bucket_index, /*small*/ true, flags))
-			return err_couldnt_lock;
-	}
+    if (GET_NO_LOCK(flags) != flag_no_lock) {
+        if (!memento_lock(hash_bucket_index, /*small*/ true, flags))
+            return err_couldnt_lock;
+    }
 
     int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
     int64_t fingerprint_pos = runstart_index;
@@ -3123,25 +3141,25 @@ inline int32_t Memento::delete_single(uint64_t key, uint64_t memento, uint8_t fl
     for (int32_t i = ind - 1; i >= 0; i--) {
         int32_t old_slot_count, new_slot_count;
         remove_mementos_from_prefix_set(sorted_positions[i], &memento, &handled,
-                                        1, &new_slot_count, &old_slot_count);
+                1, &new_slot_count, &old_slot_count);
         if (handled) {
             if (new_slot_count < old_slot_count) {
                 int32_t operation = ((new_slot_count == 0) && 
-                                    (run_end(hash_bucket_index) - runstart_index + 1 == (uint32_t) old_slot_count));
+                        (run_end(hash_bucket_index) - runstart_index + 1 == (uint32_t) old_slot_count));
                 remove_replace_slots_and_shift_remainders_and_runends_and_offsets(operation,
-                                                                                  hash_bucket_index,
-                                                                                  sorted_positions[i] + new_slot_count,
-                                                                                  nullptr,
-                                                                                  0,
-                                                                                  old_slot_count - new_slot_count);
+                        hash_bucket_index,
+                        sorted_positions[i] + new_slot_count,
+                        nullptr,
+                        0,
+                        old_slot_count - new_slot_count);
             }
             break;
         }
     }
 
-	if (GET_NO_LOCK(flags) != flag_no_lock) {
-		memento_unlock(hash_bucket_index, /*small*/ true);
-	}
+    if (GET_NO_LOCK(flags) != flag_no_lock) {
+        memento_unlock(hash_bucket_index, /*small*/ true);
+    }
 
     return handled ? 0 : err_doesnt_exist;
 }
@@ -3163,7 +3181,7 @@ inline uint64_t Memento::lower_bound_mementos_for_fingerprint(uint64_t pos, uint
         uint64_t max_memento = current_memento;
         if (max_memento <= target_memento)
             return max_memento;
-        
+
         pos += 2;
         const uint64_t max_memento_value = (1ULL << metadata_->memento_bits) - 1;
         uint64_t current_slot = get_slot(pos);
@@ -3715,72 +3733,72 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t position) const {
 
 inline Memento::hash_iterator Memento::hash_begin(uint64_t key, uint8_t flags) const {
     hash_iterator it(*this);
-	if (key >= metadata_->range) {
-		it.current_ = 0XFFFFFFFFFFFFFFFF;
+    if (key >= metadata_->range) {
+        it.current_ = 0XFFFFFFFFFFFFFFFF;
         return it;
-	}
+    }
 
-	it.num_clusters_ = 0;
+    it.num_clusters_ = 0;
 
-	if (GET_KEY_HASH(flags) != flag_key_is_hash) {
-		if (metadata_->hash_mode == hashmode::Default)
-			key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
-		else if (metadata_->hash_mode == hashmode::Invertible)
-			key = hash_64(key, BITMASK(63));
-	}
-	uint64_t hash = key;
+    if (GET_KEY_HASH(flags) != flag_key_is_hash) {
+        if (metadata_->hash_mode == hashmode::Default)
+            key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+        else if (metadata_->hash_mode == hashmode::Invertible)
+            key = hash_64(key, BITMASK(63));
+    }
+    uint64_t hash = key;
 
     const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
     const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
     const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
-                                                      - metadata_->fingerprint_bits
-                                                      - metadata_->original_quotient_bits);
-	const uint64_t fast_reduced_part = fast_reduce(((hash & BITMASK(orig_quotient_size)) 
-                                                    << (32 - orig_quotient_size)), orig_nslots);
-	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
-                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
-    
+            - metadata_->fingerprint_bits
+            - metadata_->original_quotient_bits);
+    const uint64_t fast_reduced_part = fast_reduce(((hash & BITMASK(orig_quotient_size)) 
+                << (32 - orig_quotient_size)), orig_nslots);
+    const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
+
     bool target_found = false;
-	// If a run starts at "position" move the iterator to point it to the
-	// smallest key greater than or equal to "hash."
-	if (is_occupied(hash_bucket_index)) {
-		uint64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
-		if (runstart_index < hash_bucket_index)
-			runstart_index = hash_bucket_index;
+    // If a run starts at "position" move the iterator to point it to the
+    // smallest key greater than or equal to "hash."
+    if (is_occupied(hash_bucket_index)) {
+        uint64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
+        if (runstart_index < hash_bucket_index)
+            runstart_index = hash_bucket_index;
         int64_t fingerprint_pos = next_matching_fingerprint_in_run(runstart_index, hash_fingerprint);
         if (fingerprint_pos < 0)
             fingerprint_pos = lower_bound_fingerprint_in_run(runstart_index, hash_fingerprint);
-		// Found something matching `hash`, or smallest key greater than `hash`
+        // Found something matching `hash`, or smallest key greater than `hash`
         // in this run.
         target_found = (uint64_t) fingerprint_pos <= run_end(hash_bucket_index);
-		if (target_found) {
-			it.run_ = hash_bucket_index;
-			it.current_ = runstart_index;
-		}
-	}
+        if (target_found) {
+            it.run_ = hash_bucket_index;
+            it.current_ = runstart_index;
+        }
+    }
     // If a run doesn't start at `position` or the largest key in the run
     // starting at `position` is smaller than `hash` then find the start of the
     // next run.
-	if (!is_occupied(hash_bucket_index) || !target_found) {
-		uint64_t position = hash_bucket_index;
-		assert(position < metadata_->nslots);
-		uint64_t block_index = position / slots_per_block_;
-		uint64_t idx = bitselect(get_block(block_index)->occupieds[0], 0);
-		if (idx == 64) {
-			while(idx == 64 && block_index < metadata_->nblocks) {
-				block_index++;
-				idx = bitselect(get_block(block_index)->occupieds[0], 0);
-			}
-		}
-		position = block_index * slots_per_block_ + idx;
-		it.run_ = position;
-	    it.current_ = std::max(position == 0 ? 0 : run_end(position - 1) + 1, position);
-	}
+    if (!is_occupied(hash_bucket_index) || !target_found) {
+        uint64_t position = hash_bucket_index;
+        assert(position < metadata_->nslots);
+        uint64_t block_index = position / slots_per_block_;
+        uint64_t idx = lowbit_position(get_block(block_index)->occupieds[0] & (~BITMASK((position % slots_per_block_) + 1)));
+        if (idx == 64) {
+            while(idx == 64 && block_index < metadata_->nblocks) {
+                block_index++;
+                idx = lowbit_position(get_block(block_index)->occupieds[0]);
+            }
+        }
+        position = block_index * slots_per_block_ + idx;
+        it.run_ = position;
+        it.current_ = std::max(position == 0 ? 0 : run_end(position - 1) + 1, position);
+    }
 
-	if (it.current_ >= metadata_->nslots)
-		it.current_ = 0XFFFFFFFFFFFFFFFF;
-	return it;
+    if (it.current_ >= metadata_->nslots)
+        it.current_ = 0XFFFFFFFFFFFFFFFF;
+    return it;
 }
 
 inline Memento::hash_iterator Memento::hash_end() const {

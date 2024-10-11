@@ -256,6 +256,62 @@ TEST_SUITE("standard memento") {
             }
             REQUIRE_EQ(it, memento.end());
         }
+
+        SUBCASE("insert") {
+            key_prefix = 200;
+            std::vector<uint64_t> check_keys;
+            for (int32_t i = 31; i > 0; i -= 3) {
+                const uint64_t key = (key_prefix << memento_bits) | i;
+                check_keys.insert(check_keys.begin(), key);
+                memento.insert(key_prefix, i, Memento::flag_no_lock);
+
+                const uint64_t l = (key_prefix << memento_bits) | 0ULL;
+                const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
+                auto it = memento.begin(l, r);
+                for (int32_t i = 0; i < check_keys.size(); i++) {
+                    REQUIRE_NE(it, memento.end());
+                    REQUIRE_EQ(*it, check_keys[i]);
+                    ++it;
+                }
+                REQUIRE_EQ(it, memento.end());
+            }
+        }
+    }
+}
+
+TEST_SUITE("standard memento: large mementos") {
+    const uint32_t seed = 1;
+
+    TEST_CASE("iterator") {
+        const uint32_t n_elements = 1000;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 40;
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+
+        SUBCASE("insert") {
+            uint64_t key_prefix = 200;
+            std::vector<uint64_t> check_keys;
+            for (int64_t i = BITMASK(memento_bits); i > 0; i -= BITMASK(memento_bits) >> 10) {
+                const uint64_t key = (key_prefix << memento_bits) | i;
+                check_keys.insert(check_keys.begin(), key);
+                memento.insert(key_prefix, i, Memento::flag_no_lock);
+
+                const uint64_t l = (key_prefix << memento_bits) | 0ULL;
+                const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
+                auto it = memento.begin(l, r);
+                for (int32_t j = 0; j < check_keys.size(); j++) {
+                    REQUIRE_NE(it, memento.end());
+                    REQUIRE_EQ(*it, check_keys[j]);
+                    ++it;
+                }
+                REQUIRE_EQ(it, memento.end());
+            }
+        }
     }
 
     TEST_CASE("serialize & deserialize") {
