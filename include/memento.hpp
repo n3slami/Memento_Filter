@@ -532,7 +532,7 @@ private:
     static constexpr uint32_t slots_per_block_ = 1ULL << block_offset_bits_;
     static constexpr uint32_t metadata_words_per_block_ = (slots_per_block_ + 63) / 64;
 
-    static constexpr uint64_t num_slots_to_lock_ = 1ULL << 16;
+    static constexpr uint64_t num_slots_to_lock_ = 1ULL << 16; // size of region 2^10 blocks
     static constexpr uint64_t cluster_size_ = 1ULL << 14;
 
     static constexpr uint32_t distance_from_home_slot_cutoff_ = 1000;
@@ -543,7 +543,9 @@ private:
         uint8_t offset; // Also works with uint16_t, uint32_t, etc., but uint8_t seems just as fast
         uint64_t occupieds[metadata_words_per_block_];
         uint64_t runends[metadata_words_per_block_];
-        uint8_t slots[1];
+        uint8_t slots[1]; // 64 slots
+        // add pointer to payload
+        char* payload;
     };
 
     /**
@@ -3621,7 +3623,10 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
             break;
         ++it_;
     }
-    std::sort(mementos_.begin(), mementos_.end());
+    // we can avoid this sorting since we don't insert mementos in bulk so
+    // we will not have a case of duplicated fingerprints with different mementos that we
+    // have to merge
+//    std::sort(mementos_.begin(), mementos_.end());
 }
 
 inline uint64_t Memento::iterator::get_memento() {
