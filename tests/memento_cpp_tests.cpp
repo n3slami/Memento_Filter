@@ -329,7 +329,7 @@ TEST_SUITE("standard memento: large mementos") {
         char* serialized = memento.serialize();
 
         // deserialize
-        Memento* memento_deserialized = Memento::deserialize(serialized);
+        Memento* memento_deserialized = new memento::Memento(serialized);
 
         // assert they are equal
         REQUIRE_EQ(memento.get_num_memento_bits(), memento_deserialized->get_num_memento_bits());

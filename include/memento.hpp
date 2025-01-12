@@ -581,8 +581,6 @@ class Memento {
     uint64_t occupieds[metadata_words_per_block_];
     uint64_t runends[metadata_words_per_block_];
     uint8_t slots[1];  // 64 slots
-    // add pointer to payload
-    char *payload;
   };
 
   /**
@@ -3819,10 +3817,7 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
     if (it_.is_at_runend()) break;
     ++it_;
   }
-  // we can avoid this sorting since we don't insert mementos in bulk so
-  // we will not have a case of duplicated fingerprints with different mementos
-  // that we have to merge
-  //    std::sort(mementos_.begin(), mementos_.end());
+  std::sort(mementos_.begin(), mementos_.end());
 }
 
 inline uint64_t Memento::iterator::get_memento() {
