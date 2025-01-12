@@ -1031,6 +1031,10 @@ class Memento {
     return get_slot(index) & BITMASK(metadata_->memento_bits);
   }
 
+  __attribute__((always_inline)) uint64_t get_payload(uint64_t index) const {
+    return get_slot_payload(index) & BITMASK(metadata_->payload_bits);
+  }
+
   /** Only works for little-endian machines. */
   void set_slot(uint64_t index, uint64_t value);
 
