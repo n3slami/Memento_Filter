@@ -233,7 +233,6 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
     { \
     uint64_t byte_pos = bit_pos / 8; \
     uint64_t *p = reinterpret_cast<uint64_t *>(&get_block((block_ind))->slots[byte_pos]); \
-    payload &= BITMASK(filled_bits); \
     memcpy(p, &payload, sizeof(payload)); \
     }
 
@@ -3906,10 +3905,10 @@ inline Memento::hash_iterator& Memento::hash_iterator::operator++() {
 				run_ = current_ = 0XFFFFFFFFFFFFFFFF;
                 return *this;
 			}
-			run_ = block_index * slots_per_block_ + next_run;
-                        current_++;
-			if (current_ < run_)
-                          current_ = run_;
+            run_ = block_index * slots_per_block_ + next_run;
+            current_++;
+            if (current_ < run_)
+                current_ = run_;
 #ifdef LOG_CLUSTER_LENGTH
 			if (current > old_current + 1) { /* new cluster. */
 				if (cur_length > 10) {
