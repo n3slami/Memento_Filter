@@ -267,7 +267,6 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
     uint64_t byte_pos = bit_pos / 8;                                 \
     uint64_t *p = reinterpret_cast<uint64_t *>(                      \
         &get_block((block_ind))->slots[byte_pos]);                   \
-    payload &= BITMASK(filled_bits);                                 \
     memcpy(p, &payload, sizeof(payload));                            \
   }
 
