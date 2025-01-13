@@ -48,7 +48,7 @@ TEST_SUITE("standard memento") {
         const uint32_t key_bits = 20;
         const uint32_t memento_bits = 5;
 
-        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed, 50};
     }
 
     TEST_CASE("inserts") {
@@ -63,7 +63,7 @@ TEST_SUITE("standard memento") {
         const uint32_t memento_bits = 5;
 
         SUBCASE("monte-carlo no hashing") {
-            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::None, seed};
+            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::None, seed, 50};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
             const uint8_t flags = Memento::flag_key_is_hash | Memento::flag_no_lock;
             for (int32_t i = 0; i < n_elements; i++) {
