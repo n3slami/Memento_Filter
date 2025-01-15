@@ -1455,7 +1455,7 @@ inline uint64_t Memento::get_slot(uint64_t index) const {
   uint64_t pvalue;
   memcpy(&pvalue, p, sizeof(pvalue));
   return (pvalue >>
-          (((index % slots_per_block_) * size_to_get) % 8)) &
+          (((index % slots_per_block_) * metadata_->bits_per_slot) % 8)) &
          BITMASK(size_to_get);
 }
 
@@ -1473,7 +1473,9 @@ inline uint64_t Memento::get_slot_payload(uint64_t index) const {
   uint64_t pvalue;
   memcpy(&pvalue, p, sizeof(pvalue));
   return (pvalue >>
-          (((index % slots_per_block_) * size_to_get) % 8)) &
+          (((index % slots_per_block_) * metadata_->bits_per_slot +
+            // skip over the fingerprint and memento bits
+            metadata_->fingerprint_bits + metadata_->memento_bits) % 8)) &
          BITMASK(size_to_get);
 }
 
@@ -1493,7 +1495,9 @@ inline void Memento::set_slot_payload(uint64_t index, uint64_t payload) {
   memcpy(&t, p, sizeof(t));
   uint64_t mask = BITMASK(size_to_set);
   uint64_t v = payload;
-  int32_t shift = ((index % slots_per_block_) * size_to_set) % 8;
+  int32_t shift = ((index % slots_per_block_) * metadata_->bits_per_slot +
+                   // skip over the fingerprint and memento bits
+                   metadata_->fingerprint_bits + metadata_->memento_bits) % 8;
   mask <<= shift;
   v <<= shift;
   t &= ~mask;
@@ -1517,7 +1521,7 @@ inline void Memento::set_slot(uint64_t index, uint64_t value) {
   memcpy(&t, p, sizeof(t));
   uint64_t mask = BITMASK(size_to_set);
   uint64_t v = value;
-  int32_t shift = ((index % slots_per_block_) * size_to_set) % 8;
+  int32_t shift = ((index % slots_per_block_) * metadata_->bits_per_slot) % 8;
   mask <<= shift;
   v <<= shift;
   t &= ~mask;
@@ -1678,7 +1682,7 @@ inline uint32_t Memento::find_next_empty_slot_runs_of_size_n(
 
 inline void Memento::shift_slots(int64_t first, uint64_t last,
                                  uint64_t distance) {
-  if (distance == 1) {
+  if (distance == 1 && metadata_ -> payload_bits == 0) {
     shift_remainders(first, last + 1);
     return;
   }
@@ -2242,8 +2246,11 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
     m2_payload = get_slot_payload(pos + 1);
   }
 
+  // size 2 => min than max
+  // size > 2 => max, min, list size, rest of the mementos
   const bool singleton_prefix_set = (is_runend(pos) || f1 <= f2);
   if (singleton_prefix_set) {
+    // this case is list encoding because we cannot distinguish between size 2 and larger
     if (new_memento == m1) {
       int32_t err =
           make_n_empty_slots_for_memento_list(bucket_index, pos + 1, 2);
@@ -2254,6 +2261,7 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
       if (metadata_->payload_bits > 0) {
         set_slot_payload(pos + 1, new_payload);
       }
+      // setting size
       set_slot(pos + 2, 0);
     } else {
       int32_t err = make_empty_slot_for_memento_list(bucket_index, pos + 1);
@@ -2262,11 +2270,10 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
 
       if (new_memento < m1) {
         if (metadata_->payload_bits > 0) {
-          uint64_t old_payload = get_slot_payload(pos);
           set_slot(pos, (f1 << memento_bits) | new_memento);
           set_slot_payload(pos, new_payload);
           set_slot(pos + 1, m1);
-          set_slot_payload(pos + 1, old_payload);
+          set_slot_payload(pos + 1, m1_payload);
         } else {
           set_slot(pos, (f1 << memento_bits) | new_memento);
           set_slot(pos + 1, m1);
@@ -2376,6 +2383,7 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
           set_slot_payload(pos, new_payload);
           set_slot(pos + 1, (f2 << memento_bits) | m1);
           set_slot_payload(pos + 1, m1_payload);
+          // size than memento
           set_slot(pos + 2, (m2 << memento_bits) | 1ULL);
           set_slot_payload(pos + 2, m2_payload);
         } else {
@@ -2496,7 +2504,7 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
   while (extra_bits > 0) extra_bits -= metadata_->bits_per_slot;
   int32_t extra_slots = 0;
   extra_bits += memento_bits + counter_overflow * 2 * memento_bits;
-  // also account for the payload bitsm
+  // also account for the payload bits
   if (metadata_->payload_bits > 0) {
     extra_bits += metadata_->payload_bits;
   }
@@ -3547,8 +3555,13 @@ inline int32_t Memento::point_query(uint64_t key, uint64_t memento,
              : 2);
     if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
       if (lower_bound_mementos_for_fingerprint(fingerprint_pos, memento) ==
-          memento)
+          memento) {
+        if (payload != nullptr && metadata_->payload_bits > 0) {
+          *payload = get_slot_payload(fingerprint_pos);
+        }
+        // set also the payload if exists
         return positive_res;
+      }
 
       const uint64_t m1 = get_memento(fingerprint_pos);
       const uint64_t m2 = get_memento(fingerprint_pos + 1);
