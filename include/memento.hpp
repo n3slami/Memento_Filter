@@ -2421,7 +2421,7 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
           APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                     metadata_->memento_bits + metadata_->memento_bits, dest_bit_pos,
                                     dest_block_ind);
-          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m1_payload,
                                     metadata_->payload_bits, dest_bit_pos,
                                     dest_block_ind);
           if (current_full_prefix) {
@@ -2478,14 +2478,8 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
               (dest_pos % slots_per_block_) * metadata_->bits_per_slot;
           uint64_t dest_block_ind = dest_pos / slots_per_block_;
           uint32_t current_full_prefix = 0;
-          {
-            uint64_t byte_pos = dest_bit_pos / 8;
-            uint64_t *p = reinterpret_cast<uint64_t *>(
-                &get_block((dest_block_ind))->slots[byte_pos]);
-            memcpy(&payload, p, sizeof(payload));
-            current_full_prefix = dest_bit_pos % 8;
-            dest_bit_pos -= dest_bit_pos % 8;
-          };
+          INIT_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
+                            dest_block_ind);
           uint64_t value = (new_memento << memento_bits) | 1ULL;
           APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                     metadata_->memento_bits + metadata_->memento_bits, dest_bit_pos,
@@ -2496,55 +2490,6 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
           if (current_full_prefix) {
             FLUSH_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
                                dest_block_ind);
-          }
-          // verify
-          {
-            uint64_t index = pos + 2;
-            assert(index < metadata_->xnslots);
-            /* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
-   * to generate buggy code.  :/  */
-            uint64_t size_to_get = metadata_->memento_bits;
-            uint64_t *p = reinterpret_cast<uint64_t *>(
-                &get_block(index / slots_per_block_)
-                     ->slots[(index % slots_per_block_) * metadata_->bits_per_slot / 8]);
-            // you cannot just do *p to get the value, undefined behavior
-            uint64_t pvalue;
-            memcpy(&pvalue, p, sizeof(pvalue));
-            pvalue >>= (((index % slots_per_block_) * metadata_->bits_per_slot) % 8) &
-                   BITMASK(size_to_get);
-            uint64_t check = 0;
-          }
-          {
-            uint64_t index = pos + 2;
-            assert(index < metadata_->xnslots);
-            /* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
-   * to generate buggy code.  :/  */
-            uint64_t size_to_get = metadata_->memento_bits;
-            uint64_t *p = reinterpret_cast<uint64_t *>(
-                &get_block(index / slots_per_block_)
-                     ->slots[((index % slots_per_block_) * metadata_->bits_per_slot + metadata_->memento_bits) / 8]);
-            // you cannot just do *p to get the value, undefined behavior
-            uint64_t pvalue;
-            memcpy(&pvalue, p, sizeof(pvalue));
-            pvalue >>= (((index % slots_per_block_) * metadata_->bits_per_slot + metadata_->memento_bits) % 8) &
-                       BITMASK(size_to_get);
-            uint64_t check = 0;
-          }
-          {
-            uint64_t index = pos + 2;
-            assert(index < metadata_->xnslots);
-            /* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
-   * to generate buggy code.  :/  */
-            uint64_t size_to_get = metadata_->payload_bits;
-            uint64_t *p = reinterpret_cast<uint64_t *>(
-                &get_block(index / slots_per_block_)
-                     ->slots[((index % slots_per_block_) * metadata_->bits_per_slot + 2*metadata_->memento_bits) / 8]);
-            // you cannot just do *p to get the value, undefined behavior
-            uint64_t pvalue;
-            memcpy(&pvalue, p, sizeof(pvalue));
-            pvalue >>= (((index % slots_per_block_) * metadata_->bits_per_slot + 2*metadata_->memento_bits) % 8) &
-                       BITMASK(size_to_get);
-            uint64_t check = 0;
           }
         } else {
           set_slot(pos, (f1 << memento_bits) | m2);
@@ -2646,10 +2591,12 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
   // find out how many extra slots we need
   int32_t extra_bits = (2 * unary_count + memento_count + 1) * memento_bits;
   if (metadata_->payload_bits > 0) {
-    extra_bits += (memento_count + 1) * metadata_->payload_bits;
+    // we only store payload per each memento
+    extra_bits += memento_count * metadata_->payload_bits;
   }
   while (extra_bits > 0) extra_bits -= metadata_->bits_per_slot;
   int32_t extra_slots = 0;
+  // accounting for the bits of the newly inserted memento
   extra_bits += memento_bits + counter_overflow * 2 * memento_bits;
   // also account for the payload bits
   if (metadata_->payload_bits > 0) {
@@ -2735,8 +2682,10 @@ inline uint64_t Memento::number_of_slots_used_for_memento_list(
     uint64_t pos) const {
   const uint64_t max_memento = ((1ULL << metadata_->memento_bits) - 1);
   uint64_t data = get_slot(pos);
-  uint64_t memento_count = (data & max_memento);
-  if (memento_count == max_memento) {
+  // doing +1 here to account for the one memento used for the count
+  uint64_t memento_count = (data & max_memento) + 1;
+  uint64_t payload_count = (data & max_memento);
+  if (memento_count == max_memento + 1) {
     // This is very unlikely to execute
     uint64_t length = 2, pw = 1;
     uint64_t bits_left = metadata_->bits_per_slot - metadata_->memento_bits;
@@ -2755,6 +2704,7 @@ inline uint64_t Memento::number_of_slots_used_for_memento_list(
         memento_count++;
       } else {
         memento_count += pw * current_part + 1;
+        payload_count += pw * current_part;
         pw *= max_memento;
         length--;
       }
@@ -2764,8 +2714,8 @@ inline uint64_t Memento::number_of_slots_used_for_memento_list(
   }
 
   int64_t bits_left = memento_count * metadata_->memento_bits;
-  if (metadata_->payload_bits > 0) {
-    bits_left += memento_count * metadata_->payload_bits;
+  if (metadata_->payload_bits > 0 && payload_count > 0) {
+    bits_left += payload_count * metadata_->payload_bits;
   }
   uint64_t res = 0;
   // Slight optimization for doing this division?
