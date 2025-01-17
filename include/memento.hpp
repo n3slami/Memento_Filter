@@ -828,6 +828,9 @@ class Memento {
   uint64_t count_keys() const { return metadata_->nelts; }
   uint64_t count_distinct_prefixes() const { return metadata_->ndistinct_elts; }
 
+  /* Payload info */
+  uint64_t get_payload_bits() const { return metadata_->payload_bits; }
+
   /* Status Codes */
   static constexpr int32_t err_no_space = -1;
   static constexpr int32_t err_couldnt_lock = -2;
@@ -1028,10 +1031,6 @@ class Memento {
 
   __attribute__((always_inline)) uint64_t get_memento(uint64_t index) const {
     return get_slot(index) & BITMASK(metadata_->memento_bits);
-  }
-
-  __attribute__((always_inline)) uint64_t get_payload(uint64_t index) const {
-    return get_slot_payload(index) & BITMASK(metadata_->payload_bits);
   }
 
   /** Only works for little-endian machines. */
@@ -2291,10 +2290,9 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
 
   const bool size_two_prefix_set = (m1 < m2);
   if (size_two_prefix_set) {
-    // don't use this mode if we have a payload because the overall size is expected to be
-    // above 64 bits
-    if (metadata_->payload_bits == 0 &&
-        metadata_->bits_per_slot < 2 * metadata_->memento_bits) {
+    // if we can't fit the counter + the new memento + the new payload in the slot size we need to create more
+    // more than one slot
+    if (metadata_->bits_per_slot < 2 * metadata_->memento_bits + metadata_->payload_bits) {
       int32_t err =
           make_n_empty_slots_for_memento_list(bucket_index, pos + 1, 2);
       if (err < 0)  // Check that the new data fits
@@ -2311,48 +2309,90 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
       if (new_memento < m1) {
         value = (f1 << memento_bits) | m2;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                  metadata_->bits_per_slot, dest_bit_pos,
+                                  metadata_->fingerprint_bits + metadata_->memento_bits, dest_bit_pos,
                                   dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+        }
         value = (f2 << memento_bits) | new_memento;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                  metadata_->bits_per_slot, dest_bit_pos,
+                                  metadata_->fingerprint_bits + metadata_->memento_bits, dest_bit_pos,
                                   dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, new_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+        }
         value = 1ULL;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                   memento_bits, dest_bit_pos, dest_block_ind);
         value = m1;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                   memento_bits, dest_bit_pos, dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m1_payload,
+                                    metadata_->payload_bits, dest_bit_pos, dest_block_ind);
+        }
       } else if (m2 < new_memento) {
         value = (f1 << memento_bits) | new_memento;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                  metadata_->bits_per_slot, dest_bit_pos,
+                                  metadata_->fingerprint_bits + metadata_->memento_bits, dest_bit_pos,
                                   dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, new_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+        }
         value = (f2 << memento_bits) | m1;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                  metadata_->bits_per_slot, dest_bit_pos,
+                                  metadata_->fingerprint_bits + metadata_->memento_bits, dest_bit_pos,
                                   dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m1_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+        }
         value = 1ULL;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                   memento_bits, dest_bit_pos, dest_block_ind);
         value = m2;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                   memento_bits, dest_bit_pos, dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
+                                    metadata_->payload_bits, dest_bit_pos, dest_block_ind);
+        }
       } else {
         value = (f1 << memento_bits) | m2;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                  metadata_->bits_per_slot, dest_bit_pos,
+                                  metadata_->fingerprint_bits + metadata_->memento_bits, dest_bit_pos,
                                   dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+        }
         value = (f2 << memento_bits) | m1;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                  metadata_->bits_per_slot, dest_bit_pos,
+                                  metadata_->fingerprint_bits + metadata_->memento_bits, dest_bit_pos,
                                   dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m1_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+        }
         value = 1ULL;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                   memento_bits, dest_bit_pos, dest_block_ind);
         value = new_memento;
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
                                   memento_bits, dest_bit_pos, dest_block_ind);
+        if (metadata_->payload_bits > 0) {
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, new_payload,
+                                    metadata_->payload_bits, dest_bit_pos, dest_block_ind);
+        }
       }
 
       if (current_full_prefix)
@@ -2617,6 +2657,9 @@ inline uint64_t Memento::number_of_slots_used_for_memento_list(
   }
 
   int64_t bits_left = memento_count * metadata_->memento_bits;
+  if (metadata_->payload_bits > 0) {
+    bits_left += memento_count * metadata_->payload_bits;
+  }
   uint64_t res = 0;
   // Slight optimization for doing this division?
   const int64_t step = metadata_->bits_per_slot * 16;
@@ -3500,6 +3543,11 @@ inline uint64_t Memento::lower_bound_mementos_for_fingerprint(
       current_memento = current_slot & BITMASK(metadata_->memento_bits);
       current_slot >>= metadata_->memento_bits;
       current_full_bits -= metadata_->memento_bits;
+      // skip payload as well if exists
+      if (metadata_->payload_bits > 0) {
+          current_slot >>= metadata_->payload_bits;
+          current_full_bits -= metadata_->payload_bits;
+      }
       if (target_memento <= current_memento) return current_memento;
       mementos_left--;
     } while (mementos_left);
@@ -4181,6 +4229,11 @@ inline int32_t Memento::hash_iterator::get(uint64_t &key,
         GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter_, data, filled_bits,
                                              memento_bits, data_bit_pos,
                                              data_block_ind);
+        if (filter_.get_payload_bits() > 0) {
+          GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter_, data, filled_bits,
+                                               filter_.get_payload_bits(),
+                                               data_bit_pos, data_block_ind);
+        }
         if (mementos != nullptr) mementos[res] = data & max_memento_value;
         res++;
         data >>= memento_bits;
