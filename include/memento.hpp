@@ -2409,8 +2409,25 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
           set_slot_payload(pos, m2_payload);
           set_slot(pos + 1, (f2 << memento_bits) | new_memento);
           set_slot_payload(pos + 1, new_payload);
-          set_slot(pos + 2, (m1 << memento_bits) | 1ULL);
-          set_slot_payload(pos + 2, m1_payload);
+          // set the payload after the memento
+          uint64_t payload = 0, dest_pos = pos + 2;
+          uint64_t dest_bit_pos =
+              (dest_pos % slots_per_block_) * metadata_->bits_per_slot;
+          uint64_t dest_block_ind = dest_pos / slots_per_block_;
+          uint32_t current_full_prefix = 0;
+          INIT_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
+                            dest_block_ind);
+          uint64_t value = (m1 << memento_bits) | 1ULL;
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
+                                    metadata_->memento_bits + metadata_->memento_bits, dest_bit_pos,
+                                    dest_block_ind);
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+          if (current_full_prefix) {
+            FLUSH_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
+                               dest_block_ind);
+          }
         } else {
           set_slot(pos, (f1 << memento_bits) | m2);
           set_slot(pos + 1, (f2 << memento_bits) | new_memento);
@@ -2423,9 +2440,26 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
           set_slot_payload(pos, new_payload);
           set_slot(pos + 1, (f2 << memento_bits) | m1);
           set_slot_payload(pos + 1, m1_payload);
-          // size than memento
-          set_slot(pos + 2, (m2 << memento_bits) | 1ULL);
-          set_slot_payload(pos + 2, m2_payload);
+          // size then memento
+          // set the payload after the memento
+          uint64_t payload = 0, dest_pos = pos + 2;
+          uint64_t dest_bit_pos =
+              (dest_pos % slots_per_block_) * metadata_->bits_per_slot;
+          uint64_t dest_block_ind = dest_pos / slots_per_block_;
+          uint32_t current_full_prefix = 0;
+          INIT_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
+                            dest_block_ind);
+          uint64_t value = (m2 << memento_bits) | 1ULL;
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
+                                    metadata_->memento_bits + metadata_->memento_bits, dest_bit_pos,
+                                    dest_block_ind);
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+          if (current_full_prefix) {
+            FLUSH_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
+                               dest_block_ind);
+          }
         } else {
           set_slot(pos, (f1 << memento_bits) | new_memento);
           set_slot(pos + 1, (f2 << memento_bits) | m1);
@@ -2437,8 +2471,81 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
           set_slot_payload(pos, m2_payload);
           set_slot(pos + 1, (f2 << memento_bits) | m1);
           set_slot_payload(pos + 1, m1_payload);
-          set_slot(pos + 2, (new_memento << memento_bits) | 1ULL);
-          set_slot_payload(pos + 2, new_payload);
+
+          // size then memento
+          uint64_t payload = 0, dest_pos = pos + 2;
+          uint64_t dest_bit_pos =
+              (dest_pos % slots_per_block_) * metadata_->bits_per_slot;
+          uint64_t dest_block_ind = dest_pos / slots_per_block_;
+          uint32_t current_full_prefix = 0;
+          {
+            uint64_t byte_pos = dest_bit_pos / 8;
+            uint64_t *p = reinterpret_cast<uint64_t *>(
+                &get_block((dest_block_ind))->slots[byte_pos]);
+            memcpy(&payload, p, sizeof(payload));
+            current_full_prefix = dest_bit_pos % 8;
+            dest_bit_pos -= dest_bit_pos % 8;
+          };
+          uint64_t value = (new_memento << memento_bits) | 1ULL;
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
+                                    metadata_->memento_bits + metadata_->memento_bits, dest_bit_pos,
+                                    dest_block_ind);
+          APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, new_payload,
+                                    metadata_->payload_bits, dest_bit_pos,
+                                    dest_block_ind);
+          if (current_full_prefix) {
+            FLUSH_PAYLOAD_WORD(payload, current_full_prefix, dest_bit_pos,
+                               dest_block_ind);
+          }
+          // verify
+          {
+            uint64_t index = pos + 2;
+            assert(index < metadata_->xnslots);
+            /* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
+   * to generate buggy code.  :/  */
+            uint64_t size_to_get = metadata_->memento_bits;
+            uint64_t *p = reinterpret_cast<uint64_t *>(
+                &get_block(index / slots_per_block_)
+                     ->slots[(index % slots_per_block_) * metadata_->bits_per_slot / 8]);
+            // you cannot just do *p to get the value, undefined behavior
+            uint64_t pvalue;
+            memcpy(&pvalue, p, sizeof(pvalue));
+            pvalue >>= (((index % slots_per_block_) * metadata_->bits_per_slot) % 8) &
+                   BITMASK(size_to_get);
+            uint64_t check = 0;
+          }
+          {
+            uint64_t index = pos + 2;
+            assert(index < metadata_->xnslots);
+            /* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
+   * to generate buggy code.  :/  */
+            uint64_t size_to_get = metadata_->memento_bits;
+            uint64_t *p = reinterpret_cast<uint64_t *>(
+                &get_block(index / slots_per_block_)
+                     ->slots[((index % slots_per_block_) * metadata_->bits_per_slot + metadata_->memento_bits) / 8]);
+            // you cannot just do *p to get the value, undefined behavior
+            uint64_t pvalue;
+            memcpy(&pvalue, p, sizeof(pvalue));
+            pvalue >>= (((index % slots_per_block_) * metadata_->bits_per_slot + metadata_->memento_bits) % 8) &
+                       BITMASK(size_to_get);
+            uint64_t check = 0;
+          }
+          {
+            uint64_t index = pos + 2;
+            assert(index < metadata_->xnslots);
+            /* Should use __uint128_t to support up to 64-bit remainders, but gcc seems
+   * to generate buggy code.  :/  */
+            uint64_t size_to_get = metadata_->payload_bits;
+            uint64_t *p = reinterpret_cast<uint64_t *>(
+                &get_block(index / slots_per_block_)
+                     ->slots[((index % slots_per_block_) * metadata_->bits_per_slot + 2*metadata_->memento_bits) / 8]);
+            // you cannot just do *p to get the value, undefined behavior
+            uint64_t pvalue;
+            memcpy(&pvalue, p, sizeof(pvalue));
+            pvalue >>= (((index % slots_per_block_) * metadata_->bits_per_slot + 2*metadata_->memento_bits) % 8) &
+                       BITMASK(size_to_get);
+            uint64_t check = 0;
+          }
         } else {
           set_slot(pos, (f1 << memento_bits) | m2);
           set_slot(pos + 1, (f2 << memento_bits) | m1);
@@ -2628,8 +2735,8 @@ inline uint64_t Memento::number_of_slots_used_for_memento_list(
     uint64_t pos) const {
   const uint64_t max_memento = ((1ULL << metadata_->memento_bits) - 1);
   uint64_t data = get_slot(pos);
-  uint64_t memento_count = (data & max_memento) + 1;
-  if (memento_count == max_memento + 1) {
+  uint64_t memento_count = (data & max_memento);
+  if (memento_count == max_memento) {
     // This is very unlikely to execute
     uint64_t length = 2, pw = 1;
     uint64_t bits_left = metadata_->bits_per_slot - metadata_->memento_bits;
@@ -4325,7 +4432,7 @@ inline Memento::hash_iterator &Memento::hash_iterator::operator++() {
         uint64_t next_memento = filter_.get_memento(current_ + 1);
         if (current_memento < next_memento)
           current_++;
-        else  // Mementos encoded as a sroted list
+        else  // Mementos encoded as a sorted list
           current_ +=
               filter_.number_of_slots_used_for_memento_list(current_ + 2) + 1;
       }
