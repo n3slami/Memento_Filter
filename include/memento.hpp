@@ -4443,7 +4443,12 @@ inline Memento::hash_iterator Memento::hash_iterator::operator++(int) {
 }
 
 inline bool Memento::hash_iterator::is_at_runend() const {
-  if (filter_.is_runend(current_)) return true;
+  if (filter_.is_runend(current_)) {
+      return true;
+  }
+  if (filter_.get_fingerprint(current_) <= filter_.get_fingerprint(current_ + 1)) {
+      return false;
+  }
   uint64_t current_memento = filter_.get_memento(current_);
   uint64_t next_memento = filter_.get_memento(current_ + 1);
   if (current_memento < next_memento) return false;
