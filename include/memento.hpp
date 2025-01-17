@@ -4191,7 +4191,7 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t key,
     target_found = (uint64_t)fingerprint_pos <= run_end(hash_bucket_index);
     if (target_found) {
       it.run_ = hash_bucket_index;
-      it.current_ = runstart_index;
+      it.current_ = fingerprint_pos;
     }
   }
   // If a run doesn't start at `position` or the largest key in the run
