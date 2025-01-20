@@ -900,6 +900,7 @@ class Memento {
     Memento::hash_iterator it_;
     uint64_t cur_ind_ = 0;
     std::vector<uint64_t> mementos_;
+    std::vector<uint64_t> payloads_;
   };
 
   /**
@@ -2121,6 +2122,7 @@ inline int32_t Memento::write_prefix_set(const uint64_t pos,
       if (metadata_->payload_bits > 0) {
           APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, payloads[i],
                                     metadata_->payload_bits, dest_bit_pos, dest_block_ind);
+          written_bits += metadata_->payload_bits;
       }
     }
     while (written_bits > 0) {
@@ -2150,6 +2152,14 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
   const uint64_t m1 = get_memento(pos);
   const uint64_t f2 = get_fingerprint(pos + 1);
   const uint64_t m2 = get_memento(pos + 1);
+  uint64_t p1 = 0;
+  uint64_t p2 = 0;
+  if (metadata_->payload_bits > 0) {
+    p1 = get_slot_payload(pos);
+    p2 = get_slot_payload(pos + 1);
+  }
+  (void) p1;
+  (void) p2;
   const uint64_t memento_bits = metadata_->memento_bits;
   const uint64_t max_memento_value = BITMASK(memento_bits);
 
@@ -2618,6 +2628,8 @@ inline int32_t Memento::add_memento_to_sorted_list(const uint64_t bucket_index,
                                       data_bit_pos, data_block_ind);
       payloads[cnt] = data & BITMASK(metadata_->payload_bits);
       ind_cnt += metadata_->payload_bits;
+      data >>= metadata_->payload_bits;
+      filled_bits -= metadata_->payload_bits;
     }
     if (ind_cnt >= metadata_->bits_per_slot) {
       ind++;
@@ -4079,16 +4091,25 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
       (hash_fingerprint << bucket_index_hash_size) | hash_bucket_index;
 
   mementos_.clear();
+  if (filter_.metadata_->payload_bits > 0) {
+      payloads_.clear();
+  }
   uint64_t it_hash;
   while (it_ != filter_.hash_end()) {
     const uint32_t memento_count = it_.get(it_hash);
     if (it_hash != cur_prefix_hash) break;
     const uint32_t old_list_length = mementos_.size();
     mementos_.resize(old_list_length + memento_count);
-    it_.get(it_hash, mementos_.data() + old_list_length);
+    if (filter_.metadata_->payload_bits > 0) {
+        payloads_.resize(old_list_length + memento_count);
+        it_.get(it_hash, mementos_.data() + old_list_length, payloads_.data() + old_list_length);
+    } else {
+        it_.get(it_hash, mementos_.data() + old_list_length);
+    }
     if (it_.is_at_runend()) break;
     ++it_;
   }
+  // TODO: we should sort the payloads accordingly
   std::sort(mementos_.begin(), mementos_.end());
 }
 
@@ -4283,16 +4304,25 @@ inline int32_t Memento::hash_iterator::get(uint64_t &key,
   uint64_t f1, f2, m1, m2, p1, p2;
   f1 = filter_.get_fingerprint(current_);
   f2 = filter_.get_fingerprint(current_ + 1);
-  p1 = filter_.get_slot_payload(current_);
-  p2 = filter_.get_slot_payload(current_ + 1);
+  if (filter_.get_payload_bits() > 0) {
+    p1 = filter_.get_slot_payload(current_);
+    p2 = filter_.get_slot_payload(current_ + 1);
+  }
   if (!filter_.is_runend(current_) && f1 > f2) {
     m1 = filter_.get_memento(current_);
     m2 = filter_.get_memento(current_ + 1);
     if (m1 < m2) {
       if (mementos != nullptr) {
-          // TODO:
-        mementos[res++] = m1;
-        mementos[res++] = m2;
+        mementos[res] = m1;
+        if (filter_.get_payload_bits() > 0) {
+            payloads[res] = p1;
+        }
+        res += 1;
+        mementos[res] = m2;
+        if (filter_.get_payload_bits() > 0) {
+          payloads[res] = p2;
+        }
+        res += 1;
       } else
         res += 2;
     } else {
@@ -4300,7 +4330,13 @@ inline int32_t Memento::hash_iterator::get(uint64_t &key,
       const uint64_t memento_bits = filter_.metadata_->memento_bits;
       const uint64_t max_memento_value = (1ULL << memento_bits) - 1;
 
-      if (mementos != nullptr) mementos[res] = m2;
+      // set min first
+      if (mementos != nullptr) {
+          mementos[res] = m2;
+          if (filter_.get_payload_bits() > 0) {
+              payloads[res] = p2;
+          }
+      }
       res++;
       const uint64_t pos = current_ + 2;
       uint64_t data = 0;
@@ -4335,24 +4371,44 @@ inline int32_t Memento::hash_iterator::get(uint64_t &key,
         }
       }
       for (uint32_t i = 0; i < memento_count; i++) {
-        GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter_, data, filled_bits,
+          GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter_, data, filled_bits,
                                              memento_bits, data_bit_pos,
                                              data_block_ind);
-        if (filter_.get_payload_bits() > 0) {
-          GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter_, data, filled_bits,
+          uint64_t curr_memento = data & max_memento_value;
+          uint64_t curr_payload = 0;
+          data >>= memento_bits;
+          filled_bits -= memento_bits;
+          if (filter_.get_payload_bits() > 0) {
+              GET_NEXT_DATA_WORD_IF_EMPTY_ITERATOR(filter_, data, filled_bits,
                                                filter_.get_payload_bits(),
                                                data_bit_pos, data_block_ind);
-        }
-        if (mementos != nullptr) mementos[res] = data & max_memento_value;
-        res++;
-        data >>= memento_bits;
-        filled_bits -= memento_bits;
+              curr_payload = data & BITMASK(filter_.get_payload_bits());
+              data >>= filter_.get_payload_bits();
+              filled_bits -= filter_.get_payload_bits();
+          }
+          if (mementos != nullptr) {
+            mementos[res] = curr_memento;
+            if (filter_.get_payload_bits() > 0) {
+                payloads[res] = curr_payload;
+            }
+          }
+          res++;
       }
-      if (mementos != nullptr) mementos[res] = m1;
+      if (mementos != nullptr) {
+          mementos[res] = m1;
+          if (filter_.get_payload_bits() > 0) {
+              payloads[res] = p1;
+          }
+      }
       res++;
     }
   } else {
-    if (mementos != nullptr) mementos[res] = filter_.get_memento(current_);
+    if (mementos != nullptr) {
+        mementos[res] = filter_.get_memento(current_);
+        if (filter_.get_payload_bits() > 0) {
+            payloads[res] = filter_.get_slot_payload(current_);
+        }
+    }
     res++;
   }
 
