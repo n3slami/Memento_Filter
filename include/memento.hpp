@@ -201,15 +201,14 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
 #define APPEND_WRITE_PAYLOAD_WORD(payload, filled_bits, val, val_len, bit_pos, block_ind) \
     { \
     const uint64_t bits_per_block = slots_per_block_ * metadata_->bits_per_slot; \
-    const uint32_t max_filled_bits = (bits_per_block - bit_pos < 64 ? \
-                                        bits_per_block - bit_pos : 64); \
-    const uint32_t val_bit_cnt = (val_len); \
-    if (filled_bits + val_bit_cnt > max_filled_bits) { \
+    uint64_t val_copy = (val); \
+    uint32_t val_bit_cnt = (val_len); \
+    uint32_t max_filled_bits = (bits_per_block - bit_pos < 64 ? \
+                                bits_per_block - bit_pos : 64); \
+    while (filled_bits + val_bit_cnt > max_filled_bits) { \
         const uint64_t mask = BITMASK(max_filled_bits - filled_bits); \
         payload &= ~(mask << filled_bits); \
-        payload |= (val & mask) << filled_bits; \
-        filled_bits += val_bit_cnt; \
-        filled_bits -= max_filled_bits; \
+        payload |= (val_copy & mask) << filled_bits; \
         uint64_t byte_pos = bit_pos / 8; \
         uint64_t *p = reinterpret_cast<uint64_t *>(&get_block((block_ind))->slots[byte_pos]); \
         memcpy(p, &payload, sizeof(payload)); \
@@ -218,14 +217,17 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
             bit_pos = 0; \
             block_ind++; \
         } \
+        val_copy >>= max_filled_bits - filled_bits; \
+        val_bit_cnt -= max_filled_bits - filled_bits; \
+        filled_bits = 0; \
+        max_filled_bits = (bits_per_block - bit_pos < 64 ? \
+                           bits_per_block - bit_pos : 64); \
         p = reinterpret_cast<uint64_t *>(&get_block((block_ind))->slots[bit_pos / 8]); \
         memcpy(&payload, p, sizeof(payload)); \
-        payload &= ~BITMASK(filled_bits); \
-        payload |= val >> (val_bit_cnt - filled_bits); \
     } \
-    else { \
+    if (filled_bits + val_bit_cnt <= max_filled_bits) { \
         payload &= ~(BITMASK(val_bit_cnt) << filled_bits); \
-        payload |= val << filled_bits; \
+        payload |= val_copy << filled_bits; \
         filled_bits += val_bit_cnt; \
     } \
     }
