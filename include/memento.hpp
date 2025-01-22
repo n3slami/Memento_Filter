@@ -2639,7 +2639,7 @@ inline Memento::Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bit
 
 	bits_per_slot = fingerprint_bits + memento_bits;
 	assert(bits_per_slot > 1);
-	size = nblocks * (sizeof(qfblock) + slots_per_block_ * bits_per_slot / 8);
+	size = nblocks * (sizeof(qfblock) - sizeof(uint8_t) + slots_per_block_ * bits_per_slot / 8);
 
 	total_num_bytes = sizeof(qfmetadata) + size;
     uint8_t *buffer = new uint8_t[total_num_bytes] {};
@@ -2681,17 +2681,13 @@ inline Memento::Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bit
 
 
 inline Memento::~Memento() {
-	assert(runtimedata_->locks != nullptr);
-    delete[] runtimedata_->locks;
-	assert(runtimedata_ != nullptr);
-    delete[] runtimedata_;
-
+    if (runtimedata_) {
+        delete[] runtimedata_->locks;
 #ifdef LOG_WAIT_TIME
-	assert(runtimedata->wait_times != nullptr);
-    delete[] runtimedata->wait_times;
+        delete[] runtimedata_->wait_times;
 #endif
-    
-    assert(metadata_ != nullptr);
+    }
+    delete[] runtimedata_;
     delete[] metadata_;
 }
 
@@ -2791,9 +2787,9 @@ inline int64_t Memento::resize(uint64_t nslots) {
     for (auto it = hash_begin(); it != hash_end(); ++it) {
 		memento_count = it.get(key, mementos);
 
-		int ret = insert_mementos(key, mementos, memento_count, 
-                                  new_memento.metadata_->fingerprint_bits,
-                                  flag_no_lock | flag_key_is_hash);
+		int ret = new_memento.insert_mementos(key, mementos, memento_count, 
+                                              new_memento.metadata_->fingerprint_bits,
+                                              flag_no_lock | flag_key_is_hash);
 		if (ret < 0)
 			return ret;
 		ret_numkeys += memento_count;
@@ -3528,13 +3524,15 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
 	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
 	const uint64_t hash_fingerprint = (cur_prefix_hash >> bucket_index_hash_size) & BITMASK(filter_.metadata_->fingerprint_bits);
+    const uint64_t orig_prefix_hash = (fast_reduced_part | (cur_prefix_hash & (~BITMASK(orig_quotient_size))))
+                                        & BITMASK(filter_.metadata_->key_bits);
     cur_prefix_hash = (hash_fingerprint << bucket_index_hash_size) | hash_bucket_index;
     
     mementos_.clear();
     uint64_t it_hash;
     while (it_ != filter_.hash_end()) {
         const uint32_t memento_count = it_.get(it_hash);
-        if (it_hash != cur_prefix_hash)
+        if (it_hash != orig_prefix_hash)
             break;
         const uint32_t old_list_length = mementos_.size();
         mementos_.resize(old_list_length + memento_count);
@@ -3710,10 +3708,11 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t key, uint8_t flags) c
         it.current_ = std::max(position == 0 ? 0 : run_end(position - 1) + 1, position);
     }
 
-    if (it.current_ >= metadata_->nslots)
+    if (it.current_ >= metadata_->xnslots)
         it.current_ = 0XFFFFFFFFFFFFFFFF;
     return it;
 }
+
 
 inline Memento::hash_iterator Memento::hash_end() const {
     hash_iterator it(*this);
