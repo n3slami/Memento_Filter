@@ -884,6 +884,7 @@ class Memento {
     uint64_t operator*();
     uint64_t get_memento();
     uint64_t get_curr_prefix();
+    uint64_t get_payload();
     iterator &operator++();
     iterator operator++(int);
     bool operator==(const iterator &rhs) const;
@@ -3012,7 +3013,6 @@ inline int32_t Memento::insert_mementos(const __uint128_t hash,
         1ULL << ((hash_bucket_index % slots_per_block_) % 64);
   }
 
-  // Move in the payload!
   if (metadata_->payload_bits > 0) {
       write_prefix_set(insert_index, hash_fingerprint, mementos, memento_count, payloads);
   } else {
@@ -4105,8 +4105,13 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
     if (it_.is_at_runend()) break;
     ++it_;
   }
-  // TODO: we should sort the payloads accordingly
-  std::sort(mementos_.begin(), mementos_.end());
+
+  if (filter_.metadata_->payload_bits == 0) {
+      // this is done only when there is no payload because we don't
+      // support multiple keepsake boxes with the same fingerprint
+      // so the assumption is that the mementos are already sorted
+      std::sort(mementos_.begin(), mementos_.end());
+  }
 }
 
 inline uint64_t Memento::iterator::get_memento() {
@@ -4115,6 +4120,8 @@ inline uint64_t Memento::iterator::get_memento() {
 }
 
 inline uint64_t Memento::iterator::get_curr_prefix() { return cur_prefix_; }
+
+inline uint64_t Memento::iterator::get_payload() { return payloads_[cur_ind_]; }
 
 inline uint64_t Memento::iterator::operator*() {
   assert(cur_ind_ < mementos_.size());
