@@ -228,40 +228,39 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
     filled_bits = bit_pos % 8;                                      \
     bit_pos -= bit_pos % 8;                                         \
   }
-#define APPEND_WRITE_PAYLOAD_WORD(payload, filled_bits, val, val_len, bit_pos, \
-                                  block_ind)                                   \
-  {                                                                            \
-    const uint64_t bits_per_block =                                            \
-        slots_per_block_ * metadata_->bits_per_slot;                           \
-    const uint32_t max_filled_bits =                                           \
-        (bits_per_block - bit_pos < 64 ? bits_per_block - bit_pos : 64);       \
-    const uint32_t val_bit_cnt = (val_len);                                    \
-    if (filled_bits + val_bit_cnt > max_filled_bits) {                         \
-      const uint64_t mask = BITMASK(max_filled_bits - filled_bits);            \
-      payload &= ~(mask << filled_bits);                                       \
-      payload |= (val & mask) << filled_bits;                                  \
-      filled_bits += val_bit_cnt;                                              \
-      filled_bits -= max_filled_bits;                                          \
-      uint64_t byte_pos = bit_pos / 8;                                         \
-      uint64_t *p = reinterpret_cast<uint64_t *>(                              \
-          &get_block((block_ind))->slots[byte_pos]);                           \
-      memcpy(p, &payload, sizeof(payload));                                    \
-      bit_pos += max_filled_bits;                                              \
-      if (bit_pos >= bits_per_block) {                                         \
-        bit_pos = 0;                                                           \
-        block_ind++;                                                           \
-      }                                                                        \
-      p = reinterpret_cast<uint64_t *>(                                        \
-          &get_block((block_ind))->slots[bit_pos / 8]);                        \
-      memcpy(&payload, p, sizeof(payload));                                    \
-      payload &= ~BITMASK(filled_bits);                                        \
-      payload |= val >> (val_bit_cnt - filled_bits);                           \
-    } else {                                                                   \
-      payload &= ~(BITMASK(val_bit_cnt) << filled_bits);                       \
-      payload |= val << filled_bits;                                           \
-      filled_bits += val_bit_cnt;                                              \
-    }                                                                          \
-  }
+#define APPEND_WRITE_PAYLOAD_WORD(payload, filled_bits, val, val_len, bit_pos, block_ind) \
+    { \
+    const uint64_t bits_per_block = slots_per_block_ * metadata_->bits_per_slot; \
+    uint64_t val_copy = (val); \
+    uint32_t val_bit_cnt = (val_len); \
+    uint32_t max_filled_bits = (bits_per_block - bit_pos < 64 ? \
+                                bits_per_block - bit_pos : 64); \
+    while (filled_bits + val_bit_cnt > max_filled_bits) { \
+        const uint64_t mask = BITMASK(max_filled_bits - filled_bits); \
+        payload &= ~(mask << filled_bits); \
+        payload |= (val_copy & mask) << filled_bits; \
+        uint64_t byte_pos = bit_pos / 8; \
+        uint64_t *p = reinterpret_cast<uint64_t *>(&get_block((block_ind))->slots[byte_pos]); \
+        memcpy(p, &payload, sizeof(payload)); \
+        bit_pos += max_filled_bits; \
+        if (bit_pos >= bits_per_block) { \
+            bit_pos = 0; \
+            block_ind++; \
+        } \
+        val_copy >>= max_filled_bits - filled_bits; \
+        val_bit_cnt -= max_filled_bits - filled_bits; \
+        filled_bits = 0; \
+        max_filled_bits = (bits_per_block - bit_pos < 64 ? \
+                           bits_per_block - bit_pos : 64); \
+        p = reinterpret_cast<uint64_t *>(&get_block((block_ind))->slots[bit_pos / 8]); \
+        memcpy(&payload, p, sizeof(payload)); \
+    } \
+    if (filled_bits + val_bit_cnt <= max_filled_bits) { \
+        payload &= ~(BITMASK(val_bit_cnt) << filled_bits); \
+        payload |= val_copy << filled_bits; \
+        filled_bits += val_bit_cnt; \
+    } \
+    }
 #define FLUSH_PAYLOAD_WORD(payload, filled_bits, bit_pos, block_ind) \
   {                                                                  \
     uint64_t byte_pos = bit_pos / 8;                                 \
@@ -3075,7 +3074,7 @@ inline Memento::Memento(uint64_t nslots, uint64_t key_bits,
 
   bits_per_slot = fingerprint_bits + memento_bits + payload_bits;
   assert(bits_per_slot > 1);
-  size = nblocks * (sizeof(qfblock) + slots_per_block_ * bits_per_slot / 8);
+  size = nblocks * (sizeof(qfblock) - sizeof(uint8_t) + slots_per_block_ * bits_per_slot / 8);
 
   total_num_bytes = sizeof(qfmetadata) + size;
   uint8_t *buffer = new uint8_t[total_num_bytes]{};
@@ -3120,18 +3119,14 @@ inline Memento::Memento(uint64_t nslots, uint64_t key_bits,
 }
 
 inline Memento::~Memento() {
-  assert(runtimedata_->locks != nullptr);
-  delete[] runtimedata_->locks;
-  assert(runtimedata_ != nullptr);
-  delete[] runtimedata_;
-
+    if (runtimedata_) {
+        delete[] runtimedata_->locks;
 #ifdef LOG_WAIT_TIME
-  assert(runtimedata->wait_times != nullptr);
-  delete[] runtimedata->wait_times;
+        delete[] runtimedata_->wait_times;
 #endif
-
-  assert(metadata_ != nullptr);
-  delete[] metadata_;
+    }
+    delete[] runtimedata_;
+    delete[] metadata_;
 }
 
 inline Memento::Memento(const Memento &other) {
@@ -3245,7 +3240,7 @@ inline int64_t Memento::resize(uint64_t nslots) {
   for (auto it = hash_begin(); it != hash_end(); ++it) {
     memento_count = it.get(key, mementos);
 
-    int ret = insert_mementos(key, mementos, memento_count,
+    int ret = new_memento.insert_mementos(key, mementos, memento_count,
                               new_memento.metadata_->fingerprint_bits,
                               flag_no_lock | flag_key_is_hash);
     if (ret < 0) return ret;
@@ -4087,7 +4082,8 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
   const uint64_t hash_fingerprint =
       (cur_prefix_hash >> bucket_index_hash_size) &
       BITMASK(filter_.metadata_->fingerprint_bits);
-  cur_prefix_hash =
+  const uint64_t orig_prefix_hash = (fast_reduced_part | (cur_prefix_hash & (~BITMASK(orig_quotient_size))))
+                                        & BITMASK(filter_.metadata_->key_bits);cur_prefix_hash =
       (hash_fingerprint << bucket_index_hash_size) | hash_bucket_index;
 
   mementos_.clear();
@@ -4097,7 +4093,7 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
   uint64_t it_hash;
   while (it_ != filter_.hash_end()) {
     const uint32_t memento_count = it_.get(it_hash);
-    if (it_hash != cur_prefix_hash) break;
+    if (it_hash != orig_prefix_hash) break;
     const uint32_t old_list_length = mementos_.size();
     mementos_.resize(old_list_length + memento_count);
     if (filter_.metadata_->payload_bits > 0) {
@@ -4285,7 +4281,7 @@ inline Memento::hash_iterator Memento::hash_begin(uint64_t key,
         std::max(position == 0 ? 0 : run_end(position - 1) + 1, position);
   }
 
-  if (it.current_ >= metadata_->nslots) it.current_ = 0XFFFFFFFFFFFFFFFF;
+  if (it.current_ >= metadata_->xnslots) it.current_ = 0XFFFFFFFFFFFFFFFF;
   return it;
 }
 
