@@ -20,9 +20,9 @@ void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64
     std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> filter_hash_set;
 
     auto filter_it = filter.hash_begin();
-    uint64_t key, memento_count, mementos[1024];
+    uint64_t key, memento_count, mementos[1024], payloads[1024];
     for (; filter_it != filter.hash_end(); filter_it++) {
-        memento_count = filter_it.get(key, mementos);
+        memento_count = filter_it.get(key, mementos, payloads);
         const uint64_t fingerprint = key >> filter.get_bucket_index_hash_size();
         const uint64_t bucket_index = key & BITMASK(filter.get_bucket_index_hash_size());
         for (int32_t i = 0; i < memento_count; i++)
@@ -513,7 +513,8 @@ TEST_SUITE("standard memento with payload: large mementos") {
 
         const float load_factor = 0.95;
         const uint32_t n_slots = n_elements / load_factor;
-        const uint32_t key_bits = 32;
+        // make sure tha fingerprint + memento <= 62 (technically we would enforce <= 57)
+        const uint32_t key_bits = 33;
         const uint32_t memento_bits = 40;
         Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed, 0, 50};
 
