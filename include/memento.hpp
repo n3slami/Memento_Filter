@@ -4058,6 +4058,7 @@ inline Memento::iterator &Memento::iterator::operator=(const iterator &other) {
   it_ = other.it_;
   cur_ind_ = other.cur_ind_;
   mementos_ = other.mementos_;
+  payloads_ = other.payloads_;
   return *this;
 }
 
@@ -4094,6 +4095,7 @@ inline void Memento::iterator::fetch_matching_prefix_mementos() {
   while (it_ != filter_.hash_end()) {
     const uint32_t memento_count = it_.get(it_hash);
     if (it_hash != orig_prefix_hash) break;
+    // TODO: we can optimize this by getting the mementos and the size together
     const uint32_t old_list_length = mementos_.size();
     mementos_.resize(old_list_length + memento_count);
     if (filter_.metadata_->payload_bits > 0) {
@@ -4304,7 +4306,10 @@ inline int32_t Memento::hash_iterator::get(uint64_t &key,
   if (*this == filter_.hash_end()) return -1;
 
   int32_t res = 0;
-  uint64_t f1, f2, m1, m2, p1, p2;
+  uint64_t f1, f2, m1, m2;
+  // init explicitly to avoid compiler errors
+  uint64_t p1 = 0;
+  uint64_t p2 = 0;
   f1 = filter_.get_fingerprint(current_);
   f2 = filter_.get_fingerprint(current_ + 1);
   if (filter_.get_payload_bits() > 0) {
