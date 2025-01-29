@@ -1741,40 +1741,23 @@ inline int32_t Memento::remove_replace_slots_and_shift_remainders_and_runends_an
     // original_bucket block.
 	// Update the offset of the block to which it belongs.
 	uint64_t original_block = original_bucket / slots_per_block_;
-	while (1 && old_length > total_remainders) {
-        // We only update offsets if we shift/delete anything
-		int32_t last_occupieds_bit = highbit_position(get_block(original_block)->occupieds[0]);
-		// There is nothing in the block
-		if (last_occupieds_bit == 64) {
-			if (get_block(original_block + 1)->offset == 0)
-				break;
-			get_block(original_block + 1)->offset = 0;
-		} else {
-			uint64_t last_occupieds_hash_index = slots_per_block_ * original_block + last_occupieds_bit;
+    if (old_length > total_remainders) {
+        const int64_t last_slot_in_initial_cluster = current_slot;
+        while (original_block < last_slot_in_initial_cluster / slots_per_block_) {
+			uint64_t last_occupieds_hash_index = slots_per_block_ * original_block + (slots_per_block_ - 1);
 			uint64_t runend_index = run_end(last_occupieds_hash_index);
-			// Runend spans across the block
-			// Update the offset of the next block
-			if (runend_index / slots_per_block_ == original_block) {
-                // If the run ends in the same block
-				if (get_block(original_block + 1)->offset == 0)
-					break;
+			// runend spans across the block
+			// update the offset of the next block
+			if (runend_index / slots_per_block_ == original_block) { // if the run ends in the same block
 				get_block(original_block + 1)->offset = 0;
-			} else if (runend_index / slots_per_block_ == original_block + 1) {
-                // If the last run spans across one block
-				if (get_block(original_block + 1)->offset == (runend_index % slots_per_block_) + 1)
-					break;
-				get_block(original_block + 1)->offset = (runend_index % slots_per_block_) + 1;
-			} else { 
-                // If the last run spans across multiple blocks
-				for (i = original_block + 1; i < runend_index / slots_per_block_ - 1; i++)
-					get_block(i)->offset = slots_per_block_;
-				if (get_block(runend_index / slots_per_block_)->offset == (runend_index % slots_per_block_) + 1)
-					break;
-				get_block(runend_index / slots_per_block_)->offset = (runend_index % slots_per_block_) + 1;
+			} else { // if the last run spans across the block
+                const uint32_t max_offset = (uint32_t) BITMASK(8 * sizeof(blocks_[0].offset));
+                const uint32_t new_offset = runend_index - last_occupieds_hash_index;
+				get_block(original_block + 1)->offset = new_offset < max_offset ? new_offset : max_offset;
 			}
+			original_block++;
 		}
-		original_block++;
-	}
+    }
 
 	int num_slots_freed = old_length - total_remainders;
 	modify_metadata(&metadata_->noccupied_slots, -num_slots_freed);
