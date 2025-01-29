@@ -2143,7 +2143,6 @@ inline int32_t Memento::write_prefix_set(const uint64_t pos,
   return res;
 }
 
-// TODO: need to handle with payload
 inline int32_t Memento::remove_mementos_from_prefix_set(
     const uint64_t pos, const uint64_t *mementos, bool *handled,
     const uint32_t memento_cnt, int32_t *new_slot_count,
@@ -2158,8 +2157,6 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
     p1 = get_slot_payload(pos);
     p2 = get_slot_payload(pos + 1);
   }
-  (void) p1;
-  (void) p2;
   const uint64_t memento_bits = metadata_->memento_bits;
   const uint64_t max_memento_value = BITMASK(memento_bits);
 
@@ -2212,7 +2209,9 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
   }
 
   uint64_t res_mementos[old_memento_cnt], res_cnt = 0;
+  uint64_t res_payloads[old_memento_cnt];
   uint32_t cmp_ind = 0, val = (m1 < m2 ? m1 : m2);
+  uint64_t curr_payload = 0;
   int32_t newly_handled_cnt = 0;
   // Handle the minimum
   while (cmp_ind < memento_cnt &&
@@ -2223,7 +2222,11 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
     handled[cmp_ind++] = true;
     newly_handled_cnt++;
   } else {
-    res_mementos[res_cnt++] = val;
+    res_mementos[res_cnt] = val;
+    if (metadata_->payload_bits > 0) {
+      res_payloads[res_cnt] = (val == m1 ? p1 : p2);
+    }
+    res_cnt++;
   }
   // Handle the actual list
   for (uint32_t i = 1; i < old_memento_cnt - 1; i++) {
@@ -2232,6 +2235,14 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
     val = data & max_memento_value;
     data >>= memento_bits;
     filled_bits -= memento_bits;
+    if (metadata_->payload_bits > 0) {
+      GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits,
+                                  metadata_->payload_bits,
+                                  data_bit_pos, data_block_ind);
+      curr_payload = data & BITMASK(metadata_->payload_bits);
+      data >>= metadata_->payload_bits;
+      filled_bits -= metadata_->payload_bits;
+    }
     while (cmp_ind < memento_cnt &&
            (handled[cmp_ind] || mementos[cmp_ind] < val)) {
       cmp_ind++;
@@ -2240,7 +2251,11 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
       handled[cmp_ind++] = true;
       newly_handled_cnt++;
     } else {
-      res_mementos[res_cnt++] = val;
+      res_mementos[res_cnt] = val;
+      if (metadata_->payload_bits > 0) {
+        res_payloads[res_cnt] = curr_payload;
+      }
+      res_cnt++;
     }
   }
   // Handle the maximum
@@ -2253,7 +2268,11 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
     handled[cmp_ind++] = true;
     newly_handled_cnt++;
   } else {
-    res_mementos[res_cnt++] = val;
+    res_mementos[res_cnt] = val;
+    if (metadata_->payload_bits > 0) {
+      res_payloads[res_cnt] = (val == m1 ? p1 : p2);
+    }
+    res_cnt++;
   }
 
   if (res_cnt != old_memento_cnt) {
@@ -2267,7 +2286,7 @@ inline int32_t Memento::remove_mementos_from_prefix_set(
       }
     }
     *new_slot_count =
-        res_cnt ? write_prefix_set(pos, f1, res_mementos, res_cnt) : 0;
+        res_cnt ? write_prefix_set(pos, f1, res_mementos, res_cnt, res_payloads) : 0;
   } else {
     // Nothing changed
     *new_slot_count = -1;

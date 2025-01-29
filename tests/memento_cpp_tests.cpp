@@ -51,7 +51,15 @@ TEST_SUITE("standard memento") {
         const uint32_t key_bits = 20;
         const uint32_t memento_bits = 5;
 
-        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed, 50};
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+    }
+
+    TEST_CASE("allocation with payload") {
+        const uint32_t n_slots = 1000;
+        const uint32_t key_bits = 20;
+        const uint32_t memento_bits = 5;
+
+        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed, 0, 50};
     }
 
     TEST_CASE("inserts") {
@@ -574,6 +582,47 @@ TEST_SUITE("standard memento with payload: large mementos") {
                 REQUIRE_EQ(it, memento.end());
             }
         }
+    }
+}
+
+TEST_SUITE("delete with payloads") {
+    const uint32_t n_elements = 5;
+    const uint32_t rng_seed = 2;
+
+    const float load_factor = 0.95;
+    const uint32_t n_slots = n_elements / load_factor + 10000;
+    const uint32_t key_bits = 32;
+    const uint32_t memento_bits = 5;
+
+    TEST_CASE("simple delete") {
+        memento::Memento memento{n_slots, key_bits, memento_bits, memento::Memento::hashmode::Default, 0, rng_seed, 40};
+        for (uint32_t i = 0; i < n_elements; i++) {
+            const uint64_t elem = i;
+            const uint64_t elem_prefix_hash = 423;
+            const uint64_t elem_memento = elem & BITMASK(memento_bits);
+            memento.insert(elem_prefix_hash, elem_memento, memento::Memento::flag_no_lock, i);
+        }
+
+        // delete
+        for (uint32_t i = 1; i < 3; i++) {
+            const uint64_t elem_prefix_hash = 423;
+            const uint64_t elem_memento = i & BITMASK(memento_bits);
+            memento.delete_single(elem_prefix_hash, elem_memento, memento::Memento::flag_no_lock);
+        }
+
+        // get all of the keys in the range
+        memento::Memento::iterator it = memento.begin(423, 0, 423, 1000);
+        // assert the relevant mementos and mementos and payloads remain
+        REQUIRE_EQ(it.get_memento(), 0);
+        REQUIRE_EQ(it.get_payload(), 0);
+        it++;
+        REQUIRE_EQ(it.get_memento(), 3);
+        REQUIRE_EQ(it.get_payload(), 3);
+        it++;
+        REQUIRE_EQ(it.get_memento(), 4);
+        REQUIRE_EQ(it.get_payload(), 4);
+        it++;
+        REQUIRE_EQ(it, memento.end());
     }
 }
 } // namespace memento
