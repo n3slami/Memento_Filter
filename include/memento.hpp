@@ -567,7 +567,6 @@ class Memento {
 
   static constexpr uint64_t num_slots_to_lock_ =
       1ULL << 16;  // size of region 2^10 blocks
-  static constexpr uint64_t cluster_size_ = 1ULL << 14;
 
   static constexpr uint32_t distance_from_home_slot_cutoff_ = 1000;
   static constexpr uint32_t billion_ = 1000000000ULL;
@@ -976,22 +975,32 @@ class Memento {
    *
    * @param hash_bucket_index - The bucket indicating the target portion of
    * the filter.
-   * @param small - idk
-   * @param runtime_lock - idk
+   * @param reverse - whether we should lock the previous regions first
+   * (needed for operations that may shift slots to the left such as delete).
+   * @param lock_flag -
+   * *   - `flag_wait_for_lock`: Spin until you get the lock, then do the query
+   *                           or update.
+   *
+   *   - `flag_try_once_lock`: If you can't grab the lock on the first try,
+   * @param num_regions_to_lock - The number of regions to lock.
+   *                           return with an error code.
    * @returns `true` if the portion was was successfully locked and `false`
    * otherwise.
    */
-  bool memento_lock(uint64_t hash_bucket_index, bool small,
-                    uint8_t runtime_lock);
+  bool memento_lock(uint64_t hash_bucket_index, bool reverse,
+                    uint8_t lock_flag, uint32_t num_regions_to_lock = 2);
 
   /**
    * Unlock the portion of the filter indicated by `hash_bucket_index`.
    *
    * @param hash_bucket_index - The bucket indicating the target portion of
    * the filter.
-   * @param small - idk
+   * @param reverse - whether we should lock the previous regions first
+   * (needed for operations that may shift slots to the left such as delete).
+   * @param num_regions_to_unlock - The number of regions to lock.
    */
-  void memento_unlock(uint64_t hash_bucket_index, bool small);
+  void memento_unlock(uint64_t hash_bucket_index, bool reverse,
+                      uint32_t num_regions_to_unlock = 2);
 
   /**
    * Add `cnt` to a metadata value.
@@ -1326,110 +1335,77 @@ inline bool Memento::spin_lock(volatile int *lock, uint8_t flag) {
   return false;
 }
 
-inline bool Memento::memento_lock(uint64_t hash_bucket_index, bool small,
-                                  uint8_t runtime_lock) {
-  uint64_t hash_bucket_lock_offset = hash_bucket_index % num_slots_to_lock_;
-  if (small) {
-#ifdef LOG_WAIT_TIME
-    if (!spin_lock(&runtimedata->locks[hash_bucket_index / num_slots_to_lock],
-                   hash_bucket_index / num_slots_to_lock, runtime_lock))
-      return false;
-    if (num_slots_to_lock - hash_bucket_lock_offset <= cluster_size) {
+inline bool Memento::memento_lock(uint64_t hash_bucket_index, bool reverse,
+                                  uint8_t lock_flag, uint32_t num_regions_to_lock) {
+  // for deletes we first have to lock the previous region and only then the current one
+  // to avoid deadlocks with concurrent inserts
+  uint32_t left_to_lock = num_regions_to_lock;
+  if (reverse) {
+    int32_t hash_bucket_index_to_lock = (hash_bucket_index / num_slots_to_lock_) - num_regions_to_lock + 1;
+    while(left_to_lock > 0) {
+      // if we overflow with the regions no need to lock
+      if (hash_bucket_index_to_lock < 0) {
+        continue;
+      }
+      // try locking
       if (!spin_lock(
-              &runtimedata->locks[hash_bucket_index / num_slots_to_lock + 1],
-              hash_bucket_index / num_slots_to_lock + 1, runtime_lock)) {
-        spin_unlock(&runtimedata->locks[hash_bucket_index / num_slots_to_lock]);
+              &runtimedata_->locks[hash_bucket_index_to_lock],
+              lock_flag)) {
+        // we failed locking so release all acquired locks
+        while (left_to_lock < num_regions_to_lock) {
+          hash_bucket_index_to_lock--;
+          spin_unlock(&runtimedata_->locks[hash_bucket_index_to_lock]);
+          left_to_lock++;
+        }
         return false;
       }
+      hash_bucket_index_to_lock++;
+      left_to_lock--;
     }
-#else
-    if (!spin_lock(&runtimedata_->locks[hash_bucket_index / num_slots_to_lock_],
-                   runtime_lock))
-      return false;
-    if (num_slots_to_lock_ - hash_bucket_lock_offset <= cluster_size_) {
-      if (!spin_lock(
-              &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ + 1],
-              runtime_lock)) {
-        spin_unlock(
-            &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_]);
-        return false;
-      }
-    }
-#endif
   } else {
-#ifdef LOG_WAIT_TIME
-    if (hash_bucket_index >= num_slots_to_lock &&
-        hash_bucket_lock_offset <= cluster_size) {
+    uint32_t hash_bucket_index_to_lock = hash_bucket_index / num_slots_to_lock_;
+    while(left_to_lock > 0) {
+      // if we overflow with the regions no need to lock
+      if (hash_bucket_index_to_lock >= runtimedata_->num_locks) {
+            continue;
+      }
+      // try locking
       if (!spin_lock(
-              &runtimedata->locks[hash_bucket_index / num_slots_to_lock - 1],
-              runtime_lock))
-        return false;
+              &runtimedata_->locks[hash_bucket_index_to_lock],
+              lock_flag)) {
+            // we failed locking so release all acquired locks
+            while (left_to_lock < num_regions_to_lock) {
+              hash_bucket_index_to_lock--;
+              spin_unlock(&runtimedata_->locks[hash_bucket_index_to_lock]);
+              left_to_lock++;
+            }
+            return false;
+      }
+      hash_bucket_index_to_lock++;
+      left_to_lock--;
     }
-    if (!spin_lock(&runtimedata->locks[hash_bucket_index / num_slots_to_lock],
-                   runtime_lock)) {
-      if (hash_bucket_index >= num_slots_to_lock &&
-          hash_bucket_lock_offset <= cluster_size)
-        spin_unlock(
-            &runtimedata->locks[hash_bucket_index / num_slots_to_lock - 1]);
-      return false;
-    }
-    if (!spin_lock(
-            &runtimedata->locks[hash_bucket_index / num_slots_to_lock + 1],
-            runtime_lock)) {
-      spin_unlock(&runtimedata->locks[hash_bucket_index / num_slots_to_lock]);
-      if (hash_bucket_index >= num_slots_to_lock &&
-          hash_bucket_lock_offset <= cluster_size)
-        spin_unlock(
-            &runtimedata->locks[hash_bucket_index / num_slots_to_lock - 1]);
-      return false;
-    }
-#else
-    if (hash_bucket_index >= num_slots_to_lock_ &&
-        hash_bucket_lock_offset <= cluster_size_) {
-      if (!spin_lock(
-              &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ - 1],
-              runtime_lock))
-        return false;
-    }
-    if (!spin_lock(&runtimedata_->locks[hash_bucket_index / num_slots_to_lock_],
-                   runtime_lock)) {
-      if (hash_bucket_index >= num_slots_to_lock_ &&
-          hash_bucket_lock_offset <= cluster_size_)
-        spin_unlock(
-            &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ - 1]);
-      return false;
-    }
-    if (!spin_lock(
-            &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ + 1],
-            runtime_lock)) {
-      spin_unlock(&runtimedata_->locks[hash_bucket_index / num_slots_to_lock_]);
-      if (hash_bucket_index >= num_slots_to_lock_ &&
-          hash_bucket_lock_offset <= cluster_size_)
-        spin_unlock(
-            &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ - 1]);
-      return false;
-    }
-#endif
   }
   return true;
 }
 
-inline void Memento::memento_unlock(uint64_t hash_bucket_index, bool small) {
-  uint64_t hash_bucket_lock_offset = hash_bucket_index % num_slots_to_lock_;
-  if (small) {
-    if (num_slots_to_lock_ - hash_bucket_lock_offset <= cluster_size_) {
-      spin_unlock(
-          &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ + 1]);
-    }
-    spin_unlock(&runtimedata_->locks[hash_bucket_index / num_slots_to_lock_]);
+inline void Memento::memento_unlock(uint64_t hash_bucket_index, bool reverse,
+                                    uint32_t num_regions_to_unlock) {
+  uint32_t left_to_unlock = num_regions_to_unlock;
+  int32_t hash_bucket_index_to_lock;
+  // we unlock in the reverse order we acquired
+  if (reverse) {
+    hash_bucket_index_to_lock = hash_bucket_index / num_slots_to_lock_;
   } else {
-    spin_unlock(
-        &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ + 1]);
-    spin_unlock(&runtimedata_->locks[hash_bucket_index / num_slots_to_lock_]);
-    if (hash_bucket_index >= num_slots_to_lock_ &&
-        hash_bucket_lock_offset <= cluster_size_)
-      spin_unlock(
-          &runtimedata_->locks[hash_bucket_index / num_slots_to_lock_ - 1]);
+    hash_bucket_index_to_lock = (hash_bucket_index / num_slots_to_lock_ + num_regions_to_unlock) - 1;
+  }
+  while(left_to_unlock > 0) {
+    // if we overflow with the regions no need to unlock
+    if (hash_bucket_index_to_lock < 0 || (uint32_t) hash_bucket_index_to_lock >= runtimedata_->num_locks) {
+      continue;
+    }
+    spin_unlock(&runtimedata_->locks[hash_bucket_index_to_lock]);
+    hash_bucket_index_to_lock--;
+    left_to_unlock--;
   }
 }
 
@@ -2939,8 +2915,9 @@ inline int32_t Memento::insert_mementos(const __uint128_t hash,
     new_slot_count = 3;
   }
 
+  // first lock the current region and the next region
   if (GET_NO_LOCK(runtime_lock) != flag_no_lock) {
-    if (!memento_lock(hash_bucket_index, /*small*/ true, runtime_lock))
+    if (!memento_lock(hash_bucket_index, /* reverse */ false, runtime_lock))
       return err_couldnt_lock;
   }
 
@@ -2952,7 +2929,7 @@ inline int32_t Memento::insert_mementos(const __uint128_t hash,
       metadata_->xnslots) {
     // Check that the new data fits
     if (GET_NO_LOCK(runtime_lock) != flag_no_lock) {
-      memento_unlock(hash_bucket_index, /*small*/ true);
+      memento_unlock(hash_bucket_index, /* reverse */ false);
     }
     return err_no_space;
   }
@@ -3061,6 +3038,7 @@ inline Memento::Memento(char *src) {
   blocks_ = reinterpret_cast<qfblock *>(metadata_ + 1);
 
   runtimedata_ = new qfruntime;
+  // +2 instead of +1 to also enable to always lock +1 in the lock function
   runtimedata_->num_locks = (metadata_->xnslots / num_slots_to_lock_) + 2;
 
   /* initialize all the locks to 0 */
@@ -3255,13 +3233,13 @@ inline int64_t Memento::resize(uint64_t nslots) {
 
   // Copy keys from this filter into the new filter
   int64_t ret_numkeys = 0;
-  uint64_t key, memento_count, mementos[1024];
+  uint64_t key, memento_count, mementos[1024], payloads[1024];
   for (auto it = hash_begin(); it != hash_end(); ++it) {
-    memento_count = it.get(key, mementos);
+    memento_count = it.get(key, mementos, payloads);
 
     int ret = new_memento.insert_mementos(key, mementos, memento_count,
                               new_memento.metadata_->fingerprint_bits,
-                              flag_no_lock | flag_key_is_hash);
+                              flag_no_lock | flag_key_is_hash, payloads);
     if (ret < 0) return ret;
     ret_numkeys += memento_count;
   }
@@ -3359,7 +3337,7 @@ inline int64_t Memento::insert(uint64_t key, uint64_t memento, uint8_t flags, ui
        BITMASK(bucket_index_hash_size - orig_quotient_size));
 
   if (GET_NO_LOCK(flags) != flag_no_lock) {
-    if (!memento_lock(hash_bucket_index, /*small*/ true, flags))
+    if (!memento_lock(hash_bucket_index, /*inverse*/ false, flags))
       return err_couldnt_lock;
   }
 
@@ -3446,7 +3424,7 @@ inline int64_t Memento::insert(uint64_t key, uint64_t memento, uint8_t flags, ui
   }
 
   if (GET_NO_LOCK(flags) != flag_no_lock)
-    memento_unlock(hash_bucket_index, /*small*/ true);
+    memento_unlock(hash_bucket_index, /*inverse*/ false);
 
   modify_metadata(&metadata_->nelts, 1);
   return res;
