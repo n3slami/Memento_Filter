@@ -4,8 +4,10 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <set>
 #include <tuple>
@@ -16,7 +18,7 @@
 
 namespace memento {
 void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>>& hash_set,
-                             Memento& filter) {
+                             Memento<false>& filter) {
     std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> filter_hash_set;
 
     auto filter_it = filter.hash_begin();
@@ -40,6 +42,29 @@ void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64
 }
 
 
+void assert_memento_contents(std::multiset<std::pair<uint64_t, uint64_t>>& hash_set,
+                             Memento<true>& filter) {
+    std::multiset<std::pair<uint64_t, uint64_t>> filter_hash_set;
+
+    auto filter_it = filter.hash_begin();
+    uint64_t key, memento_count, mementos[1024];
+    for (; filter_it != filter.hash_end(); filter_it++) {
+        memento_count = filter_it.get(key, mementos);
+        for (int32_t i = 0; i < memento_count; i++)
+            filter_hash_set.insert({key, mementos[i]});
+    }
+    REQUIRE_EQ(filter_it, filter.hash_end());
+
+    REQUIRE_EQ(hash_set.size(), filter_hash_set.size());
+    auto hash_it = hash_set.begin();
+    for (auto it = filter_hash_set.begin(); it != filter_hash_set.end(); ++it) {
+        REQUIRE_EQ(*hash_it, *it);
+        ++hash_it;
+    }
+    REQUIRE_EQ(hash_it, hash_set.end());
+}
+
+
 TEST_SUITE("standard memento") {
     const uint32_t seed = 1;
 
@@ -48,7 +73,7 @@ TEST_SUITE("standard memento") {
         const uint32_t key_bits = 20;
         const uint32_t memento_bits = 5;
 
-        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+        Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
     }
 
     TEST_CASE("inserts") {
@@ -63,9 +88,9 @@ TEST_SUITE("standard memento") {
         const uint32_t memento_bits = 5;
 
         SUBCASE("monte-carlo no hashing") {
-            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::None, seed};
+            Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::None, seed};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
-            const uint8_t flags = Memento::flag_key_is_hash | Memento::flag_no_lock;
+            const uint8_t flags = Memento<false>::flag_key_is_hash | Memento<false>::flag_no_lock;
             for (int32_t i = 0; i < n_elements; i++) {
                 const uint64_t elem = rng();
                 const uint64_t elem_prefix_hash = elem >> memento_bits;
@@ -83,9 +108,9 @@ TEST_SUITE("standard memento") {
 
 
         SUBCASE("monte-carlo single insert") {
-            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+            Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
-            const uint8_t flags = Memento::flag_no_lock;
+            const uint8_t flags = Memento<false>::flag_no_lock;
             for (int32_t i = 0; i < n_elements; i++) {
                 const uint64_t elem = rng();
                 const uint64_t elem_prefix = elem >> memento_bits;
@@ -104,9 +129,9 @@ TEST_SUITE("standard memento") {
 
 
         SUBCASE("monte-carlo list insert") {
-            Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+            Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
             const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
-            const uint8_t flags = Memento::flag_no_lock;
+            const uint8_t flags = Memento<false>::flag_no_lock;
 
             const uint32_t geometric_modulo = 5;
             std::vector<uint64_t> memento_list;
@@ -134,6 +159,7 @@ TEST_SUITE("standard memento") {
 
     TEST_CASE("queries") {
         const uint32_t n_elements = 1000000;
+        const uint32_t n_queries = 1000000;
         const uint32_t rng_seed = 2;
         std::mt19937 rng(rng_seed);
 
@@ -141,20 +167,119 @@ TEST_SUITE("standard memento") {
         const uint32_t n_slots = n_elements / load_factor + 10000;
         const uint32_t key_bits = 32;
         const uint32_t memento_bits = 5;
-        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+        Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
+
+        const float expected_point_fpr = std::pow(2, -memento.get_num_fingerprint_bits());
+        const float expected_range_fpr = 2 * expected_point_fpr;
 
         SUBCASE("point: no false negatives") {
+            std::vector<uint64_t> keys;
+            for (int32_t i = 0; i < n_elements; i++) {
+                const uint64_t key = rng();
+                const uint64_t key_prefix = key >> memento.get_num_memento_bits();
+                const uint64_t key_memento = key & BITMASK(memento.get_num_memento_bits());
+                keys.push_back(key);
+                memento.insert(key_prefix, key_memento, Memento<false>::flag_no_lock);
+            }
+            for (uint64_t key : keys) {
+                const uint64_t key_prefix = key >> memento.get_num_memento_bits();
+                const uint64_t key_memento = key & BITMASK(memento.get_num_memento_bits());
+                REQUIRE(memento.point_query(key_prefix, key_memento, Memento<false>::flag_no_lock));
+            }
         }
 
 
         SUBCASE("point: false positive rate") {
+            std::vector<uint64_t> keys;
+            for (int32_t i = 0; i < n_elements; i++) {
+                const uint64_t key = rng();
+                const uint64_t key_prefix = key >> memento.get_num_memento_bits();
+                const uint64_t key_memento = key & BITMASK(memento.get_num_memento_bits());
+                keys.push_back(key);
+                memento.insert(key_prefix, key_memento, Memento<false>::flag_no_lock);
+            }
+            std::sort(keys.begin(), keys.end());
+
+            uint64_t fp_count = 0;
+            for (int32_t i = 0; i < n_queries; i++) {
+                const uint64_t key = rng();
+                if (std::binary_search(keys.begin(), keys.end(), key)) {
+                    i--;
+                    continue;
+                }
+                const uint64_t key_prefix = key >> memento.get_num_memento_bits();
+                const uint64_t key_memento = key & BITMASK(memento.get_num_memento_bits());
+                fp_count += memento.point_query(key_prefix, key_memento, Memento<false>::flag_no_lock);
+            }
+            REQUIRE_LE(static_cast<float>(fp_count) / n_queries, 1.1 * expected_point_fpr);
         }
 
 
         SUBCASE("range: no false negatives") {
+            std::vector<uint64_t> keys;
+            for (int32_t i = 0; i < n_elements; i++) {
+                const uint64_t key = rng();
+                const uint64_t key_prefix = key >> memento.get_num_memento_bits();
+                const uint64_t key_memento = key & BITMASK(memento.get_num_memento_bits());
+                keys.push_back(key);
+                memento.insert(key_prefix, key_memento, Memento<false>::flag_no_lock);
+            }
+            std::sort(keys.begin(), keys.end());
+
+            std::vector<std::pair<uint64_t, uint64_t>> queries;
+            while (queries.size() < n_queries) {
+                uint64_t l = rng(), r = rng();
+                if (l > r)
+                    std::swap(l, r);
+                auto lower_bound_elem = std::lower_bound(keys.begin(), keys.end(), l);
+                if (lower_bound_elem == keys.end() || *lower_bound_elem > r)
+                    continue;
+                queries.push_back({l, r});
+            }
+
+            for (auto [l, r] : queries) {
+                const uint64_t l_prefix = l >> memento.get_num_memento_bits();
+                const uint64_t l_memento = l & BITMASK(memento.get_num_memento_bits());
+                const uint64_t r_prefix = r >> memento.get_num_memento_bits();
+                const uint64_t r_memento = r & BITMASK(memento.get_num_memento_bits());
+                REQUIRE(memento.range_query(l_prefix, l_memento, r_prefix, r_memento, Memento<false>::flag_no_lock));
+            }
         }
 
+
         SUBCASE("range: false positive rate") {
+            std::vector<uint64_t> keys;
+            for (int32_t i = 0; i < n_elements; i++) {
+                const uint64_t key = rng();
+                const uint64_t key_prefix = key >> memento.get_num_memento_bits();
+                const uint64_t key_memento = key & BITMASK(memento.get_num_memento_bits());
+                keys.push_back(key);
+                memento.insert(key_prefix, key_memento, Memento<false>::flag_no_lock);
+            }
+            std::sort(keys.begin(), keys.end());
+
+            std::vector<std::pair<uint64_t, uint64_t>> queries;
+            for (int32_t i = 0; i < n_queries; i++) {
+                const uint32_t pos = rng() % keys.size();
+                const uint64_t sample_range_l = keys[pos];
+                const uint64_t sample_range_r = pos == keys.size() - 1 ? keys[pos + 1] : std::numeric_limits<uint64_t>::max();
+                uint64_t l = sample_range_l + rng() % (sample_range_r - sample_range_l);
+                uint64_t r = sample_range_l + rng() % (sample_range_r - sample_range_l);
+                if (l > r)
+                    std::swap(l, r);
+                queries.push_back({l, r});
+            }
+
+            uint64_t fp_count = 0;
+            for (auto [l, r] : queries) {
+                const uint64_t l_prefix = l >> memento.get_num_memento_bits();
+                const uint64_t l_memento = l & BITMASK(memento.get_num_memento_bits());
+                const uint64_t r_prefix = r >> memento.get_num_memento_bits();
+                const uint64_t r_memento = r & BITMASK(memento.get_num_memento_bits());
+                fp_count += memento.range_query(l_prefix, l_memento, r_prefix, r_memento, Memento<false>::flag_no_lock);
+            }
+            std::cerr << "fp_count=" << fp_count << " vs. expected_range_fpr=" << expected_range_fpr << std::endl;
+            REQUIRE_LE(static_cast<float>(fp_count) / n_queries, 1.1 * expected_range_fpr);
         }
     }
 
@@ -167,16 +292,16 @@ TEST_SUITE("standard memento") {
         const uint32_t n_slots = n_elements / load_factor;
         const uint32_t key_bits = 32;
         const uint32_t memento_bits = 5;
-        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+        Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
 
         uint64_t key_prefix = 100;
         std::vector<uint64_t> mementos {1, 2, 3, 4, 5, 6, 7};
-        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
-        memento.insert(key_prefix, 20, Memento::flag_no_lock);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock);
+        memento.insert(key_prefix, 20, Memento<false>::flag_no_lock);
         mementos.clear();
         for (int32_t i = 25; i < 31; i++)
             mementos.push_back(i);
-        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock);
 
         SUBCASE("single partition") {
             const uint64_t check_keys[14] = {3201, 3202, 3203, 3204, 3205,
@@ -210,11 +335,11 @@ TEST_SUITE("standard memento") {
         mementos.clear();
         for (int32_t i = 10; i < 24; i++)
             mementos.push_back(i);
-        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock);
         mementos.clear();
         for (int32_t i = 0; i < 30; i += 2)
             mementos.push_back(i);
-        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock);
 
         SUBCASE("two partitions") {
             const uint64_t check_keys[43] = {3201, 3202, 3203, 3204, 3205,
@@ -237,7 +362,7 @@ TEST_SUITE("standard memento") {
         mementos.clear();
         for (int32_t i = 1; i < 32; i += 3)
             mementos.push_back(i);
-        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento::flag_no_lock);
+        memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock);
 
         SUBCASE("five partitions with two gaps") {
             const uint64_t check_keys[54] = {3201, 3202, 3203, 3204, 3205,
@@ -263,7 +388,7 @@ TEST_SUITE("standard memento") {
             for (int32_t i = 31; i > 0; i -= 3) {
                 const uint64_t key = (key_prefix << memento_bits) | i;
                 check_keys.insert(check_keys.begin(), key);
-                memento.insert(key_prefix, i, Memento::flag_no_lock);
+                memento.insert(key_prefix, i, Memento<false>::flag_no_lock);
 
                 const uint64_t l = (key_prefix << memento_bits) | 0ULL;
                 const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
@@ -277,13 +402,10 @@ TEST_SUITE("standard memento") {
             }
         }
     }
-}
 
-TEST_SUITE("standard memento: large mementos") {
-    const uint32_t seed = 1;
-
-    TEST_CASE("iterator") {
+    TEST_CASE("large mementos") {
         const uint32_t n_elements = 1000;
+        const uint32_t seed = 1;
         const uint32_t rng_seed = 2;
         std::mt19937 rng(rng_seed);
 
@@ -291,7 +413,7 @@ TEST_SUITE("standard memento: large mementos") {
         const uint32_t n_slots = n_elements / load_factor;
         const uint32_t key_bits = 32;
         const uint32_t memento_bits = 40;
-        Memento memento{n_slots, key_bits, memento_bits, Memento::hashmode::Default, seed};
+        Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
 
         SUBCASE("insert") {
             uint64_t key_prefix = 200;
@@ -299,7 +421,7 @@ TEST_SUITE("standard memento: large mementos") {
             for (int64_t i = BITMASK(memento_bits); i > 0; i -= BITMASK(memento_bits) >> 10) {
                 const uint64_t key = (key_prefix << memento_bits) | i;
                 check_keys.insert(check_keys.begin(), key);
-                memento.insert(key_prefix, i, Memento::flag_no_lock);
+                memento.insert(key_prefix, i, Memento<false>::flag_no_lock);
 
                 const uint64_t l = (key_prefix << memento_bits) | 0ULL;
                 const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
@@ -314,6 +436,139 @@ TEST_SUITE("standard memento: large mementos") {
         }
     }
 }
+
+TEST_SUITE("expandable memento") {
+    const uint32_t seed = 1;
+
+    TEST_CASE("allocation") {
+        const uint32_t n_slots = 1000;
+        const uint32_t key_bits = 20;
+        const uint32_t memento_bits = 5;
+
+        Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::Default, seed};
+    }
+
+    TEST_CASE("inserts") {
+        const uint32_t n_elements = 1000000;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+        std::multiset<std::pair<uint64_t, uint64_t>> check_set;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor + 10000;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+
+        SUBCASE("monte-carlo no hashing") {
+            Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::None, seed};
+            const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+            const uint8_t flags = Memento<false>::flag_key_is_hash | Memento<false>::flag_no_lock;
+            for (int32_t i = 0; i < n_elements; i++) {
+                const uint64_t elem = rng();
+                const uint64_t elem_prefix_hash = elem >> memento_bits;
+                const uint64_t elem_memento = elem & BITMASK(memento_bits);
+                REQUIRE_GE(memento.insert(elem_prefix_hash, elem_memento, flags), 0);
+
+                const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                    << (32 - memento.get_original_quotient_bits()), 
+                                                            n_slots);
+                const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+                const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index) 
+                                                & BITMASK(hash_length)) | (1ULL << hash_length);
+                check_set.insert({capped_hash, elem_memento});
+            }
+            assert_memento_contents(check_set, memento);
+        }
+
+
+        SUBCASE("monte-carlo single insert") {
+            Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::Default, seed};
+            const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+            const uint8_t flags = Memento<true>::flag_no_lock;
+            for (int32_t i = 0; i < n_elements; i++) {
+                const uint64_t elem = rng();
+                const uint64_t elem_prefix = elem >> memento_bits;
+                const uint64_t elem_memento = elem & BITMASK(memento_bits);
+                REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags), 0);
+
+                const uint64_t elem_prefix_hash = MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                    << (32 - memento.get_original_quotient_bits()), 
+                                                            n_slots);
+                const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+                const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index) 
+                                                & BITMASK(hash_length)) | (1ULL << hash_length);
+                check_set.insert({capped_hash, elem_memento});
+            }
+            assert_memento_contents(check_set, memento);
+        }
+
+
+        SUBCASE("monte-carlo list insert") {
+            Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::Default, seed};
+            const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+            const uint8_t flags = Memento<true>::flag_no_lock;
+
+            const uint32_t geometric_modulo = 5;
+            std::vector<uint64_t> memento_list;
+            uint32_t last_size = 0;
+            while (check_set.size() < n_elements) {
+                memento_list.clear();
+                const uint64_t elem_prefix = rng() >> memento_bits;
+                for (uint64_t memento = rng() % geometric_modulo; memento > 0; memento = rng() % geometric_modulo)
+                    memento_list.push_back(memento);
+                std::sort(memento_list.begin(), memento_list.end());
+                REQUIRE_GE(memento.insert_mementos(elem_prefix, memento_list.data(), memento_list.size(), flags), 0);
+
+                const uint64_t elem_prefix_hash = MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                    << (32 - memento.get_original_quotient_bits()), 
+                                                            n_slots);
+                const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+                const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index) 
+                                                & BITMASK(hash_length)) | (1ULL << hash_length);
+                for (uint64_t memento : memento_list)
+                    check_set.insert({capped_hash, memento});
+            }
+            assert_memento_contents(check_set, memento);
+        }
+    }
+
+
+    TEST_CASE("expansions") {
+        const uint32_t n_elements = 1000000;
+        const uint32_t n_expansions = 4;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+        std::multiset<std::pair<uint64_t, uint64_t>> check_set;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / (n_expansions * load_factor) + 5000;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+
+        Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::Default, seed};
+        const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+        const uint8_t flags = Memento<true>::flag_no_lock;
+        for (int32_t i = 0; i < n_elements; i++) {
+            const uint64_t elem = rng();
+            const uint64_t elem_prefix = elem >> memento_bits;
+            const uint64_t elem_memento = elem & BITMASK(memento_bits);
+            REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags), 0);
+
+            const uint64_t elem_prefix_hash = MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+            const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                << (32 - memento.get_original_quotient_bits()), 
+                                                        n_slots);
+            const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+            const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index) 
+                                            & BITMASK(hash_length)) | (1ULL << hash_length);
+            check_set.insert({capped_hash, elem_memento});
+        }
+        assert_memento_contents(check_set, memento);
+    }
+}
+
 } // namespace memento
 
 
