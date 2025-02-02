@@ -1294,7 +1294,8 @@ private:
      * the keepsake box.
      */
     __attribute__((always_inline))
-    uint64_t lower_bound_mementos_for_fingerprint(uint64_t pos, uint64_t target_memento) const;
+    uint64_t lower_bound_mementos_for_fingerprint(uint64_t pos, uint64_t target_memento,
+                                         uint64_t* candidate_payload) const;
 };
 
 
@@ -3607,22 +3608,34 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
 
 
 template <bool expandable>
-inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64_t pos, uint64_t target_memento) const {
+inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64_t pos, uint64_t target_memento,
+                                                                          uint64_t* candidate_payload) const {
     uint64_t current_memento = get_memento(pos);
     uint64_t next_memento = get_memento(pos + 1);
+    uint64_t current_payload = get_slot_payload(pos);
+    uint64_t next_payload = get_slot_payload(pos + 1);
     if (current_memento < next_memento) {
-        if (target_memento <= current_memento)
-            return current_memento;
-        else
-            return next_memento;
+        if (target_memento <= current_memento) {
+          *candidate_payload = current_payload;
+          return current_memento;
+        }
+        else {
+          *candidate_payload = next_payload;
+          return next_memento;
+        }
     }
     else {
         // Mementos encoded as a sorted list
-        if (target_memento <= next_memento)
-            return next_memento;
+        if (target_memento <= next_memento) {
+          *candidate_payload = next_payload;
+          return next_memento;
+        }
+
         uint64_t max_memento = current_memento;
-        if (max_memento <= target_memento)
-            return max_memento;
+        if (max_memento <= target_memento) {
+          *candidate_payload = current_payload;
+          return max_memento;
+        }
 
         pos += 2;
         const uint64_t max_memento_value = (1ULL << metadata_->memento_bits) - 1;
@@ -3667,8 +3680,21 @@ inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64
             current_memento = current_slot & BITMASK(metadata_->memento_bits);
             current_slot >>= metadata_->memento_bits;
             current_full_bits -= metadata_->memento_bits;
-            if (target_memento <= current_memento)
-                return current_memento;
+            // skip payload as well if exists
+            if (metadata_->payload_bits > 0) {
+              if (current_full_bits < metadata_->payload_bits) {
+                pos++;
+                current_slot |= get_slot(pos) << current_full_bits;
+                current_full_bits += metadata_->bits_per_slot;
+              }
+              current_payload = current_slot & BITMASK(metadata_->payload_bits);
+              current_slot >>= metadata_->payload_bits;
+              current_full_bits -= metadata_->payload_bits;
+            }
+            if (target_memento <= current_memento) {
+              *candidate_payload = current_payload;
+              return current_memento;
+            }
             mementos_left--;
         } while (mementos_left);
         return max_memento;
@@ -3717,9 +3743,10 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
         const int positive_res = expandable ? (highbit_position(current_fingerprint) == metadata_->fingerprint_bits ? 1 : 2)
                                             : 1;
         if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
-            if (lower_bound_mementos_for_fingerprint(fingerprint_pos, memento) == memento) {
+            uint64_t candidate_payload;
+            if (lower_bound_mementos_for_fingerprint(fingerprint_pos, memento, &candidate_payload) == memento) {
                 if (payload != nullptr && metadata_->payload_bits > 0) {
-                    *payload = get_slot_payload(fingerprint_pos);
+                  *payload = candidate_payload;
                 }
 
                 return positive_res;
@@ -3812,7 +3839,8 @@ inline int32_t Memento<expandable>::range_query(uint64_t l_key, uint64_t l_memen
             const int positive_res = expandable ? (highbit_position(current_fingerprint) == metadata_->fingerprint_bits ? 1 : 2)
                                                 : 1;
             if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
-                candidate_memento = lower_bound_mementos_for_fingerprint(fingerprint_pos, l_memento);
+                uint64_t candidate_payload;
+                candidate_memento = lower_bound_mementos_for_fingerprint(fingerprint_pos, l_memento, &candidate_payload);
                 if (l_memento <= candidate_memento && candidate_memento <= r_memento)
                     return positive_res;
 
