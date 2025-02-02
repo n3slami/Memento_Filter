@@ -48,53 +48,6 @@ namespace memento {
  * Hash functions used in Memento filter.                         *
  ******************************************************************/
 
-/**
- * MurmurHash2, 64-bit versions, by Austin Appleby.
- * The same caveats as 32-bit MurmurHash2 apply here - beware of alignment and
- * endian-ness issues if used across multiple platforms.
- */
-static uint64_t MurmurHash64A(const void *key, int32_t len, uint32_t seed) {
-    const uint64_t m = 0xc6a4a7935bd1e995;
-    const int r = 47;
-
-    uint64_t h = seed ^ (len * m);
-
-    const uint64_t * data = (const uint64_t *)key;
-    const uint64_t * end = data + (len / 8);
-
-    while(data != end)
-    {
-        uint64_t k = *data++;
-
-        k *= m;
-        k ^= k >> r;
-        k *= m;
-
-        h ^= k;
-        h *= m;
-    }
-
-    const unsigned char * data2 = (const unsigned char*)data;
-
-    switch(len & 7)
-    {
-        case 7: h ^= (uint64_t)data2[6] << 48; do {} while (0);  /* fallthrough */
-        case 6: h ^= (uint64_t)data2[5] << 40; do {} while (0);  /* fallthrough */
-        case 5: h ^= (uint64_t)data2[4] << 32; do {} while (0);  /* fallthrough */
-        case 4: h ^= (uint64_t)data2[3] << 24; do {} while (0);  /* fallthrough */
-        case 3: h ^= (uint64_t)data2[2] << 16; do {} while (0);  /* fallthrough */
-        case 2: h ^= (uint64_t)data2[1] << 8; do {} while (0); /* fallthrough */
-        case 1: h ^= (uint64_t)data2[0];
-                h *= m;
-    };
-
-    h ^= h >> r;
-    h *= m;
-    h ^= h >> r;
-
-    return h;
-}
-
 /** Thomas Wang's integer hash functions. See
 * <https://gist.github.com/lh3/59882d6b96166dfc3d8d> for a snapshot.
 */
@@ -528,6 +481,54 @@ public:
     static constexpr uint32_t flag_try_once_lock = 0x02;
     static constexpr uint32_t flag_wait_for_lock = 0x04;
     static constexpr uint32_t flag_key_is_hash = 0x08; // It is sometimes useful to insert a key that has already been hashed.
+
+    // defined here to avoid collisions with other code
+    /**
+    * MurmurHash2, 64-bit versions, by Austin Appleby.
+    * The same caveats as 32-bit MurmurHash2 apply here - beware of alignment and
+    * endian-ness issues if used across multiple platforms.
+    */
+    static uint64_t MurmurHash64A(const void *key, int32_t len, uint32_t seed) {
+        const uint64_t m = 0xc6a4a7935bd1e995;
+        const int r = 47;
+
+        uint64_t h = seed ^ (len * m);
+
+        const uint64_t * data = (const uint64_t *)key;
+        const uint64_t * end = data + (len / 8);
+
+        while(data != end)
+        {
+            uint64_t k = *data++;
+
+            k *= m;
+            k ^= k >> r;
+            k *= m;
+
+            h ^= k;
+            h *= m;
+        }
+
+        const unsigned char * data2 = (const unsigned char*)data;
+
+        switch(len & 7)
+        {
+            case 7: h ^= (uint64_t)data2[6] << 48; do {} while (0);  /* fallthrough */
+            case 6: h ^= (uint64_t)data2[5] << 40; do {} while (0);  /* fallthrough */
+            case 5: h ^= (uint64_t)data2[4] << 32; do {} while (0);  /* fallthrough */
+            case 4: h ^= (uint64_t)data2[3] << 24; do {} while (0);  /* fallthrough */
+            case 3: h ^= (uint64_t)data2[2] << 16; do {} while (0);  /* fallthrough */
+            case 2: h ^= (uint64_t)data2[1] << 8; do {} while (0); /* fallthrough */
+            case 1: h ^= (uint64_t)data2[0];
+                h *= m;
+        };
+
+        h ^= h >> r;
+        h *= m;
+        h ^= h >> r;
+
+        return h;
+    }
 
 private:
     /** Must be >= 6.  6 seems fastest. */
@@ -1840,7 +1841,7 @@ inline int32_t Memento<expandable>::remove_slots_and_shift_remainders_and_runend
     // Update the offset of the block to which it belongs.
     uint64_t original_block = original_bucket / slots_per_block_;
     if (remove_length > 0) {	// we only update offsets if we shift/delete anything
-        while (original_block < last_slot_in_initial_cluster / slots_per_block_) {
+        while ((int64_t) original_block < last_slot_in_initial_cluster / slots_per_block_) {
             uint64_t last_occupieds_hash_index = slots_per_block_ * original_block + (slots_per_block_ - 1);
             uint64_t runend_index = run_end(last_occupieds_hash_index);
             // runend spans across the block
@@ -2818,7 +2819,7 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
                                                     uint8_t runtime_lock, uint64_t payloads[]) {
     int ret_distance = 0;
     const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
-    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(actual_fingerprint_size)
+    const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(actual_fingerprint_size))
                                     | (static_cast<uint64_t>(expandable) << actual_fingerprint_size);
     const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
     const uint64_t hash_bucket_index = ((hash & BITMASK(orig_quotient_size)) << (bucket_index_hash_size - orig_quotient_size))
@@ -3272,7 +3273,7 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
 
     int64_t res = 0;
     const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
-    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+    const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                     | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
     const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
     const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
@@ -3348,7 +3349,7 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
                 shift_runends(insert_index, next_empty_slot - 1, 1);
             }
             for (uint32_t i = hash_bucket_index / slots_per_block_ + 1; i <= next_empty_slot / slots_per_block_; i++) {
-                if (get_block(i)->offset + 1 <= BITMASK(8 * sizeof(blocks_[0].offset)))
+                if (get_block(i)->offset + 1ULL <= BITMASK(8 * sizeof(blocks_[0].offset)))
                     get_block(i)->offset++;
             }
             set_slot(insert_index, (hash_fingerprint << metadata_->memento_bits) | memento);
@@ -3485,7 +3486,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
     uint64_t hash = key;
     const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                                         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits) 
+    const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                     | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
     if (GET_NO_LOCK(flags) != flag_no_lock) {
@@ -3496,7 +3497,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
     bool handled = false;
     if constexpr (expandable) {
         const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
-        uint64_t fingerprint_pos = runstart_index;
+        int64_t fingerprint_pos = runstart_index;
         uint64_t matching_position[10], match_amount[10], ind = 0;
         uint8_t matching_cnt[metadata_->fingerprint_bits + 1];
         memset(matching_cnt, 0, metadata_->fingerprint_bits + 1);
@@ -3697,7 +3698,7 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
 	if (!is_occupied(hash_bucket_index))
 		return false;
 
-    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+    const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                     | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
     uint64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
@@ -3776,7 +3777,7 @@ inline int32_t Memento<expandable>::range_query(uint64_t l_key, uint64_t l_memen
                                                      << (32 - metadata_->original_quotient_bits)), orig_nslots);
 	const uint64_t l_hash_bucket_index = (l_fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((l_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t l_hash_fingerprint = (l_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+	const uint64_t l_hash_fingerprint = ((l_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                         | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
 	const uint64_t r_hash = r_key;
@@ -3784,7 +3785,7 @@ inline int32_t Memento<expandable>::range_query(uint64_t l_key, uint64_t l_memen
                                 << (32 - metadata_->original_quotient_bits)), orig_nslots);
 	const uint64_t r_hash_bucket_index = (r_fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((r_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t r_hash_fingerprint = (r_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+	const uint64_t r_hash_fingerprint = ((r_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                         | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
     uint64_t candidate_memento;
@@ -3989,6 +3990,31 @@ inline typename Memento<expandable>::iterator Memento<expandable>::end() const {
     return iterator(*this);
 }
 
+template <bool expandable>
+inline Memento<expandable>::iterator::iterator(const Memento<expandable> &filter,
+                                   const uint64_t l_prefix,
+                                   const uint64_t l_memento,
+                                   const uint64_t r_prefix,
+                                   const uint64_t r_memento)
+    : filter_{filter},
+      l_key_{(l_prefix << filter.get_num_memento_bits()) | l_memento},
+      r_key_{(r_prefix << filter.get_num_memento_bits()) | r_memento},
+      cur_prefix_{l_prefix},
+      it_{filter.hash_begin(cur_prefix_, Memento::flag_no_lock)},
+      cur_ind_{0} {
+  fetch_matching_prefix_mementos();
+  cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) -
+             mementos_.begin();
+  while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
+    cur_prefix_++;
+    fetch_matching_prefix_mementos();
+    cur_ind_ = 0;
+  }
+  if (cur_prefix_ > r_prefix ||
+      (cur_prefix_ <= r_prefix &&
+       (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
+    cur_prefix_ = std::numeric_limits<uint64_t>::max();
+}
 
 template <bool expandable>
 inline Memento<expandable>::iterator::iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key):
@@ -4089,6 +4115,11 @@ inline uint64_t Memento<expandable>::iterator::operator*() {
     return (cur_prefix_ << filter_.get_num_memento_bits()) | mementos_[cur_ind_];
 }
 
+template <bool expandable>
+inline uint64_t Memento<expandable>::iterator::get_memento() {
+  assert(cur_ind_ < mementos_.size());
+  return mementos_[cur_ind_];
+}
 
 template <bool expandable>
 inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::operator++() {
