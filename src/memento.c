@@ -2942,7 +2942,7 @@ int32_t qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) 
 
     int64_t runstart_index = hash_bucket_index == 0 ? 0 
                                     : run_end(qf, hash_bucket_index - 1) + 1;
-    uint64_t fingerprint_pos = runstart_index;
+    int64_t fingerprint_pos = runstart_index;
     uint64_t sorted_positions[50], ind = 0;
     while (true) {
         fingerprint_pos = next_matching_fingerprint_in_run(qf, fingerprint_pos, hash_fingerprint);
