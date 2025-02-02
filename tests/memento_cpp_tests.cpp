@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <set>
@@ -75,6 +76,7 @@ TEST_SUITE("standard memento") {
 
         Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
     }
+
 
     TEST_CASE("inserts") {
         const uint32_t n_elements = 1000000;
@@ -151,6 +153,88 @@ TEST_SUITE("standard memento") {
                                                 & BITMASK(memento.get_num_fingerprint_bits());
                 for (uint64_t memento : memento_list)
                     check_set.insert({bucket_index, fingerprint, memento});
+            }
+            assert_memento_contents(check_set, memento);
+        }
+    }
+
+
+    TEST_CASE("deletes") {
+        const uint32_t n_elements = 1000000;
+        const uint32_t n_deletes = 500000;
+        const uint32_t delete_insert_ratio = 5;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+        std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> check_set;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor + 10000;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+        const uint32_t geometric_modulo = 3;
+
+        SUBCASE("monte-carlo deletes and inserts") {
+            Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
+            const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+            const uint8_t flags = Memento<false>::flag_no_lock;
+            std::vector<uint64_t> existing_keys, deleted_keys;
+            while (existing_keys.size() < n_elements) {
+                const uint64_t elem = rng();
+                const uint64_t elem_prefix = elem >> memento_bits;
+                const uint64_t elem_prefix_hash = MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(quotient_bits)) << (32 - quotient_bits),
+                                                          n_slots);
+                const uint64_t fingerprint = (elem_prefix_hash >> quotient_bits) 
+                                                & BITMASK(memento.get_num_fingerprint_bits());
+                while (rng() % geometric_modulo == 0) {
+                    const uint64_t elem_memento = rng() & BITMASK(memento_bits);
+                    REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags), 0);
+                    existing_keys.push_back((elem_prefix << memento_bits) | elem_memento);
+                    check_set.insert({bucket_index, fingerprint, elem_memento});
+                }
+            }
+            assert_memento_contents(check_set, memento);
+
+            uint64_t deletes_done = 0;
+            while (deletes_done < n_deletes) {
+                const uint32_t action = rng() % delete_insert_ratio;
+                if (action > 0 || deleted_keys.empty()) { // Delete
+                    const uint32_t delete_rank = rng() % existing_keys.size();
+                    const uint64_t elem = existing_keys[delete_rank];
+                    const uint64_t elem_prefix = elem >> memento_bits;
+                    const uint64_t elem_memento = elem & BITMASK(memento_bits);
+                    REQUIRE_GE(memento.delete_single(elem_prefix, elem_memento, flags), 0);
+                    std::swap(existing_keys[existing_keys.size() - 1], existing_keys[delete_rank]);
+                    existing_keys.pop_back();
+                    deleted_keys.push_back(elem);
+                    deletes_done++;
+
+                    const uint64_t elem_prefix_hash = MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                    const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(quotient_bits)) << (32 - quotient_bits),
+                                                              n_slots);
+                    const uint64_t fingerprint = (elem_prefix_hash >> memento.get_bucket_index_hash_size()) 
+                                                    & BITMASK(memento.get_num_fingerprint_bits());
+                    auto search_it = check_set.find({bucket_index, fingerprint, elem_memento});
+                    REQUIRE(search_it != check_set.end());
+                    check_set.erase(search_it);
+                }
+                else { // Insert
+                    const uint32_t insert_rank = rng() % deleted_keys.size();
+                    const uint64_t elem = deleted_keys[insert_rank];
+                    const uint64_t elem_prefix = elem >> memento_bits;
+                    const uint64_t elem_memento = elem & BITMASK(memento_bits);
+                    REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags), 0);
+                    existing_keys.push_back(elem);
+                    std::swap(deleted_keys[deleted_keys.size() - 1], deleted_keys[insert_rank]);
+                    deleted_keys.pop_back();
+
+                    const uint64_t elem_prefix_hash = MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                    const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(quotient_bits)) << (32 - quotient_bits),
+                                                              n_slots);
+                    const uint64_t fingerprint = (elem_prefix_hash >> memento.get_bucket_index_hash_size()) 
+                                                    & BITMASK(memento.get_num_fingerprint_bits());
+                    check_set.insert({bucket_index, fingerprint, elem_memento});
+                }
             }
             assert_memento_contents(check_set, memento);
         }
@@ -278,7 +362,6 @@ TEST_SUITE("standard memento") {
                 const uint64_t r_memento = r & BITMASK(memento.get_num_memento_bits());
                 fp_count += memento.range_query(l_prefix, l_memento, r_prefix, r_memento, Memento<false>::flag_no_lock);
             }
-            std::cerr << "fp_count=" << fp_count << " vs. expected_range_fpr=" << expected_range_fpr << std::endl;
             REQUIRE_LE(static_cast<float>(fp_count) / n_queries, 1.1 * expected_range_fpr);
         }
     }

@@ -1071,26 +1071,21 @@ private:
     void shift_runends(int64_t first, uint64_t last, uint64_t distance);
 
     /**
-     * Removes `old_length` slots starting at `overwrite_index` and replaces
-     * them with the `total_remainders` values store in `remainders`. If
-     * `operation` is set to `true`, the corresponding `occupieds` bits in the
-     * filter will be set to zero if the run becomes empty.
+     * Removes `remove_length` slots starting at `remove_index`. If
+     * `only_item_in_run` is set to `true`, the corresponding `occupieds` bits
+     * in the filter will be set to zero if the run becomes empty.
      *
-     * @param operation - If `true`, the `occupieds` of the run will be reset
-     * if the run becomes empty.
+     * @param only_item_in_run - If `true`, the `occupieds` of the run will be
+     * reset and the run becomes empty.
      * @param bucket_index - The bucket whose run is being modified.
-     * @param overwrite_index - The slot in the filter where overwrites will
-     * happen from.
-     * @param remainders - A list new remainders to move into the filter.
-     * @param total_remainders - The length of the list of new remainders.
-     * @param old_length - The number of slots being modified.
+     * @param remove_index - The slot in the filter where removals will happen
+     * from.
+     * @param remove_length - The number of slots being removed.
      */
-    int32_t remove_replace_slots_and_shift_remainders_and_runends_and_offsets(bool operation, 
-                                                                              uint64_t bucket_index,
-                                                                              uint64_t overwrite_index,
-                                                                              const uint64_t *remainders,
-                                                                              uint64_t total_remainders,
-                                                                              uint64_t old_length);
+    int32_t remove_slots_and_shift_remainders_and_runends_and_offsets(bool only_item_in_run,
+                                                                      uint64_t bucket_index, 
+                                                                      uint64_t remove_index,
+                                                                      uint64_t remove_length);
 
     /** 
      * Creates an empty slot for a list of mementos. The indexing here is
@@ -1695,98 +1690,93 @@ inline void Memento<expandable>::shift_runends(int64_t first, uint64_t last, uin
 }
 
 template <bool expandable>
-inline int32_t Memento<expandable>::remove_replace_slots_and_shift_remainders_and_runends_and_offsets(bool operation,
-                                      uint64_t bucket_index, uint64_t overwrite_index, const uint64_t *remainders,
-                                      uint64_t total_remainders, uint64_t old_length) {
-	uint64_t i;
+inline int32_t Memento<expandable>::remove_slots_and_shift_remainders_and_runends_and_offsets(bool only_item_in_run,
+                                                                                              uint64_t bucket_index, 
+                                                                                              uint64_t remove_index,
+                                                                                              uint64_t remove_length) {
+    // If this is the last thing in its run, then we may need to set a new runend bit
+    const bool was_runend = is_runend(remove_index + remove_length - 1);
+    if (was_runend && !only_item_in_run)
+        METADATA_WORD(runends, remove_index - 1) |= 1ULL << ((remove_index - 1) % 64);
 
-	// Update the slots
-	for (i = 0; i < total_remainders; i++)
-		set_slot(overwrite_index + i, remainders[i]);
+    // shift slots back one run at a time
+    uint64_t original_bucket = bucket_index;
+    uint64_t current_bucket = bucket_index;
+    uint64_t current_slot = remove_index;
+    uint64_t current_distance = remove_length;
+    int64_t last_slot_in_initial_cluster = -1;
+    int ret_current_distance = current_distance;
 
-	// If this is the last thing in its run, then we may need to set a new runend bit
-	if (is_runend(overwrite_index + old_length - 1)) {
-	  if (total_remainders > 0) {
-	    // If we're not deleting this entry entirely, then it will still the last entry in this run
-	    METADATA_WORD(runends, overwrite_index + total_remainders - 1) |= 1ULL << ((overwrite_index + total_remainders - 1) % 64);
-	  } else if (overwrite_index > bucket_index &&
-		     !is_runend(overwrite_index - 1)) {
-        // If we're deleting this entry entirely, but it is not the first entry
-        // in this run, then set the preceding entry to be the runend
-	    METADATA_WORD(runends, overwrite_index - 1) |= 1ULL << ((overwrite_index - 1) % 64);
-	  }
-	}
+    while (current_distance > 0) { // every iteration of this loop deletes one slot from the item and shifts the cluster accordingly
+                                   // start with an occupied-runend pair
+        current_bucket = bucket_index;
+        current_slot = remove_index + current_distance - 1;
 
-	// Shift slots back one run at a time
-	uint64_t original_bucket = bucket_index;
-	uint64_t current_bucket = bucket_index;
-	uint64_t current_slot = overwrite_index + total_remainders;
-	uint64_t current_distance = old_length - total_remainders;
-	int ret_current_distance = current_distance;
+        if (!was_runend) 
+            while (!is_runend(current_slot))
+                current_slot++; // step to the end of the run
+        do {
+            current_bucket++;
+        } while (current_bucket <= current_slot && !is_occupied(current_bucket)); // step to the next occupied bucket
+                                                                                  // current_slot should now be on the last slot in the run and current_bucket should be on the bucket for the next run
 
-	while (current_distance > 0) {
-		if (is_runend(current_slot + current_distance - 1)) {
-			do {
-				current_bucket++;
-			} while (current_bucket < current_slot + current_distance &&
-							 !is_occupied(current_bucket));
-		}
+        while (current_bucket <= current_slot) { // until we find the end of the cluster,
+                                                 // find the last slot in the run
+            current_slot++; // step into the next run
+            while (!is_runend(current_slot))
+                current_slot++; // find the last slot in this run
+                                // find the next bucket
+            do {
+                current_bucket++;
+            } while (current_bucket <= current_slot && !is_occupied(current_bucket));
+        }
 
-		if (current_bucket <= current_slot) {
-			set_slot(current_slot, get_slot(current_slot + current_distance));
-			if (is_runend(current_slot) !=
-					is_runend(current_slot + current_distance))
-				METADATA_WORD(runends, current_slot) ^= 1ULL << (current_slot % 64);
-			current_slot++;
+        if (last_slot_in_initial_cluster == -1)
+            last_slot_in_initial_cluster = current_slot;
 
-		} else if (current_bucket <= current_slot + current_distance) {
-			for (i = current_slot; i < current_slot + current_distance; i++) {
-				set_slot(i, 0);
-				METADATA_WORD(runends, i) &= ~(1ULL << (i % 64));
-			}
+        // now that we've found the last slot in the cluster, we can shift the whole cluster over by 1
+        uint64_t i;
+        for (i = remove_index; i < current_slot; i++) {
+            set_slot(i, get_slot(i + 1));
+            if (is_runend(i) != is_runend(i + 1))
+                METADATA_WORD(runends, i) ^= 1ULL << (i % 64);
+        }
+        set_slot(i, 0);
+        METADATA_WORD(runends, i) &= ~(1ULL << (i % 64));
 
-			current_distance = current_slot + current_distance - current_bucket;
-			current_slot = current_bucket;
-		} else {
-			current_distance = 0;
-		}
-	}
-
-    // Reset the occupied bit of the hash bucket index if the hash is the only
-    // item in the run and is removed completely.
-	if (operation && !total_remainders)
-		METADATA_WORD(occupieds, bucket_index) &= ~(1ULL << (bucket_index % 64));
-
-	// Update the offset bits.
-	// Find the number of occupied slots in the original_bucket block.
-    // Then find the runend slot corresponding to the last run in the
-    // original_bucket block.
-	// Update the offset of the block to which it belongs.
-	uint64_t original_block = original_bucket / slots_per_block_;
-    if (old_length > total_remainders) {
-        const int64_t last_slot_in_initial_cluster = current_slot;
-        while (original_block < last_slot_in_initial_cluster / slots_per_block_) {
-			uint64_t last_occupieds_hash_index = slots_per_block_ * original_block + (slots_per_block_ - 1);
-			uint64_t runend_index = run_end(last_occupieds_hash_index);
-			// runend spans across the block
-			// update the offset of the next block
-			if (runend_index / slots_per_block_ == original_block) { // if the run ends in the same block
-				get_block(original_block + 1)->offset = 0;
-			} else { // if the last run spans across the block
-                const uint32_t max_offset = (uint32_t) BITMASK(8 * sizeof(blocks_[0].offset));
-                const uint32_t new_offset = runend_index - last_occupieds_hash_index;
-				get_block(original_block + 1)->offset = new_offset < max_offset ? new_offset : max_offset;
-			}
-			original_block++;
-		}
+        current_distance--;
     }
 
-	int num_slots_freed = old_length - total_remainders;
-	modify_metadata(&metadata_->noccupied_slots, -num_slots_freed);
-	if (!total_remainders)
-		modify_metadata(&metadata_->ndistinct_elts, -1);
+    // reset the occupied bit of the hash bucket index if the hash is the
+    // only item in the run and is removed completely.
+    if (only_item_in_run)
+        METADATA_WORD(occupieds, bucket_index) &= ~(1ULL << (bucket_index % 64));
 
-	return ret_current_distance;
+    // update the offset bits.
+    // find the number of occupied slots in the original_bucket block.
+    // Then find the runend slot corresponding to the last run in the
+    // original_bucket block.
+    // Update the offset of the block to which it belongs.
+    uint64_t original_block = original_bucket / slots_per_block_;
+    if (remove_length > 0) {	// we only update offsets if we shift/delete anything
+        while (original_block < last_slot_in_initial_cluster / slots_per_block_) {
+            uint64_t last_occupieds_hash_index = slots_per_block_ * original_block + (slots_per_block_ - 1);
+            uint64_t runend_index = run_end(last_occupieds_hash_index);
+            // runend spans across the block
+            // update the offset of the next block
+            if (runend_index / slots_per_block_ == original_block) { // if the run ends in the same block
+                get_block(original_block + 1)->offset = 0;
+            } else { // if the last run spans across the block
+                const uint32_t max_offset = (uint32_t) BITMASK(8 * sizeof(blocks_[0].offset));
+                const uint32_t new_offset = runend_index - last_occupieds_hash_index;
+                get_block(original_block + 1)->offset = new_offset < max_offset ? new_offset : max_offset;
+            }
+            original_block++;
+        }
+    }
+
+    modify_metadata(&metadata_->noccupied_slots, -((int32_t) remove_length));
+    return ret_current_distance;
 }
 
 
@@ -1996,7 +1986,8 @@ inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64
     uint64_t data_block_ind = (pos + 2) / slots_per_block_;
     GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
                                 data_bit_pos, data_block_ind);
-    if (m1 > m2) {
+    if (m1 >= m2) {
+        *old_slot_count = number_of_slots_used_for_memento_list(pos + 2) + 2;
         old_memento_cnt += data & max_memento_value;
         data >>= memento_bits;
         filled_bits -= memento_bits;
@@ -2070,13 +2061,6 @@ inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64
 
     if (res_cnt != old_memento_cnt) {
         // Something changed
-        if (old_memento_cnt > 2) {
-            int32_t old_list_bits = (old_memento_cnt - 1 + 2 * old_unary_cnt) * memento_bits;
-            while (old_list_bits > 0) {
-                old_list_bits -= metadata_->bits_per_slot;
-                (*old_slot_count)++;
-            }
-        }
         *new_slot_count = res_cnt ? write_prefix_set(pos, f1, res_mementos, res_cnt) : 0;
     }
     else {
@@ -3129,7 +3113,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
 
     bool handled = false;
     if constexpr (expandable) {
-        int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
+        const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
         uint64_t fingerprint_pos = runstart_index;
         uint64_t matching_position[10], match_amount[10], ind = 0;
         uint8_t matching_cnt[metadata_->fingerprint_bits + 1];
@@ -3172,22 +3156,18 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
                                             1, &new_slot_count, &old_slot_count);
             if (handled) {
                 if (new_slot_count < old_slot_count) {
-                    int32_t operation = ((new_slot_count == 0) && 
-                                        (run_end(hash_bucket_index) - runstart_index + 1 == old_slot_count));
-                    remove_replace_slots_and_shift_remainders_and_runends_and_offsets(operation,
-                            hash_bucket_index,
-                            sorted_positions[i] + new_slot_count,
-                            NULL,
-                            0,
-                            old_slot_count - new_slot_count);
-                    modify_metadata(&metadata_->noccupied_slots, new_slot_count - old_slot_count);
+                    const bool only_item_in_run = is_runend(runstart_index);
+                    remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
+                                                                              hash_bucket_index,
+                                                                              sorted_positions[i] + new_slot_count,
+                                                                              old_slot_count - new_slot_count);
                 }
                 break;
             }
         }
     }
     else {
-        int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
+        const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
         int64_t fingerprint_pos = runstart_index;
         uint64_t sorted_positions[50], ind = 0;
         while (true) {
@@ -3221,15 +3201,11 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
                                             1, &new_slot_count, &old_slot_count);
             if (handled) {
                 if (new_slot_count < old_slot_count) {
-                    int32_t operation = ((new_slot_count == 0) && 
-                            (run_end(hash_bucket_index) - runstart_index + 1 == (uint32_t) old_slot_count));
-                    remove_replace_slots_and_shift_remainders_and_runends_and_offsets(operation,
-                            hash_bucket_index,
-                            sorted_positions[i] + new_slot_count,
-                            nullptr,
-                            0,
-                            old_slot_count - new_slot_count);
-                    modify_metadata(&metadata_->noccupied_slots, new_slot_count - old_slot_count);
+                    const bool only_item_in_run = is_runend(runstart_index);
+                    remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
+                                                                              hash_bucket_index,
+                                                                              sorted_positions[i] + new_slot_count,
+                                                                              old_slot_count - new_slot_count);
                 }
                 break;
             }
