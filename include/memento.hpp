@@ -3114,7 +3114,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
     bool handled = false;
     if constexpr (expandable) {
         const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
-        uint64_t fingerprint_pos = runstart_index;
+        int64_t fingerprint_pos = runstart_index;
         uint64_t matching_position[10], match_amount[10], ind = 0;
         uint8_t matching_cnt[metadata_->fingerprint_bits + 1];
         memset(matching_cnt, 0, metadata_->fingerprint_bits + 1);
