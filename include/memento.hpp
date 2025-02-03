@@ -1960,7 +1960,7 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
         for (uint32_t i = 0; i < memento_cnt; i++) {
             uint64_t val = mementos[i];
             APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val,
-                                      metadata_->bits_per_slot, dest_bit_pos, dest_block_ind);
+                                      metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos, dest_block_ind);
             if (metadata_->payload_bits> 0) {
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, payloads[i],
                                           metadata_->payload_bits, dest_bit_pos,
@@ -1981,7 +1981,7 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
     if (memento_cnt == 2) {
         uint64_t val = (fingerprint << metadata_->memento_bits) | mementos[0];
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val,
-                                  metadata_->bits_per_slot, dest_bit_pos, dest_block_ind);
+                                  metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos, dest_block_ind);
         if (metadata_->payload_bits> 0) {
             APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, payloads[0],
                                       metadata_->payload_bits, dest_bit_pos,
@@ -1989,7 +1989,7 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
         }
         val = mementos[1];
         APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val,
-                                  metadata_->bits_per_slot, dest_bit_pos, dest_block_ind);
+                                  metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos, dest_block_ind);
         if (metadata_->payload_bits> 0) {
             APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, payloads[1],
                                       metadata_->payload_bits, dest_bit_pos,
@@ -2003,7 +2003,7 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
     }
     else {
         uint64_t val = (fingerprint << metadata_->memento_bits) | mementos[memento_cnt - 1];
-        APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val, metadata_->bits_per_slot,
+        APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val, metadata_->fingerprint_bits + metadata_->memento_bits + expandable,
                                   dest_bit_pos, dest_block_ind);
         if (metadata_->payload_bits > 0) {
             APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, payloads[memento_cnt - 1],
@@ -2011,7 +2011,7 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
                                       dest_block_ind);
         }
         val = mementos[0];
-        APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val, metadata_->bits_per_slot,
+        APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, val, metadata_->fingerprint_bits + metadata_->memento_bits + expandable,
                                   dest_bit_pos, dest_block_ind);
         if (metadata_->payload_bits > 0) {
             APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, payloads[0],
