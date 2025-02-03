@@ -3007,6 +3007,8 @@ inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t
     }
     fingerprint_bits -= (__builtin_popcountll(num_slots) > 1);
 
+    assert(fingerprint_bits + memento_bits + expandable  <= 56); // since we read 64 bits at a time the first 8 bits might be from the previous slot
+    assert(payload_bits <= 56); // since we read 64 bits at a time the first 8 bits might be from the previous slot
     bits_per_slot = fingerprint_bits + memento_bits + expandable + payload_bits;
     assert(bits_per_slot > 1);
     size = nblocks * (sizeof(qfblock) - sizeof(uint8_t) + slots_per_block_ * bits_per_slot / 8);
@@ -3170,14 +3172,14 @@ inline uint64_t Memento<expandable>::serialized_size() const {
 template <bool expandable>
 inline int64_t Memento<expandable>::resize(uint64_t nslots) {
     Memento new_memento(nslots, metadata_->key_bits + expandable, metadata_->memento_bits,
-                      metadata_->hash_mode, metadata_->seed, metadata_->original_quotient_bits);
+                      metadata_->hash_mode, metadata_->seed, metadata_->original_quotient_bits, metadata_->payload_bits);
     new_memento.set_auto_resize(metadata_->auto_resize);
 
 	// Copy keys from this filter into the new filter
 	int64_t ret_numkeys = 0;
     uint64_t key, memento_count, mementos[1024], payloads[1024];
     for (auto it = hash_begin(); it != hash_end(); ++it) {
-		memento_count = it.get(key, mementos);
+		memento_count = it.get(key, mementos, payloads);
 
         const uint64_t new_fingerprint_size = expandable ? highbit_position(key) - metadata_->key_bits + metadata_->fingerprint_bits - 1
                                                          : new_memento.metadata_->fingerprint_bits;
