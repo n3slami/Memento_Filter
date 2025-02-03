@@ -3639,12 +3639,16 @@ inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64
           return max_memento;
         }
 
-        pos += 2;
-        const uint64_t max_memento_value = (1ULL << metadata_->memento_bits) - 1;
-        uint64_t current_slot = get_slot(pos);
-        uint64_t mementos_left = (current_slot & BITMASK(metadata_->memento_bits));
-        current_slot >>= metadata_->memento_bits;
-        uint32_t current_full_bits = metadata_->bits_per_slot - metadata_->memento_bits;
+        const uint64_t max_memento_value = BITMASK(metadata_->memento_bits);
+        uint64_t data_bit_pos = ((pos + 2) % slots_per_block_) * metadata_->bits_per_slot;
+        uint64_t data_block_ind = (pos + 2) / slots_per_block_;
+        uint64_t data = 0;
+        uint64_t filled_bits = 0;
+        GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, metadata_->memento_bits,
+                                    data_bit_pos, data_block_ind);
+        uint64_t mementos_left = (data & BITMASK(metadata_->memento_bits));
+        data >>= metadata_->memento_bits;
+        filled_bits -= metadata_->memento_bits;
 
         // Check for an extended memento counter
         if (mementos_left == max_memento_value) {
@@ -3653,51 +3657,42 @@ inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64
             uint64_t length = 2, pw = 1;
             mementos_left = 0;
             pos++;
-            while (length > 0) {
-                if (current_full_bits < metadata_->memento_bits) {
-                    current_slot |= get_slot(pos) << current_full_bits;
-                    current_full_bits += metadata_->bits_per_slot;
-                    pos++;
-                }
-                uint64_t current_part = current_slot & max_memento_value;
-                if (current_part == max_memento_value) {
-                    length++;
-                }
-                else {
-                    mementos_left += pw * current_part;
-                    pw *= max_memento_value;
-                    length--;
-                }
-                current_slot >>= metadata_->memento_bits;
-                current_full_bits -= metadata_->memento_bits;
+            while (length) {
+              GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, metadata_->memento_bits,
+                                          data_bit_pos, data_block_ind);
+              const uint64_t current_fragment = data & max_memento_value;
+              if (current_fragment == max_memento_value) {
+                length++;
+              }
+              else {
+                length--;
+                mementos_left += pw * current_fragment;
+                pw *= max_memento_value;
+              }
+              data >>= metadata_->memento_bits;
+              filled_bits -= metadata_->memento_bits;
             }
         }
 
         do {
-            if (current_full_bits < metadata_->memento_bits) {
-                pos++;
-                current_slot |= get_slot(pos) << current_full_bits;
-                current_full_bits += metadata_->bits_per_slot;
-            }
-            current_memento = current_slot & BITMASK(metadata_->memento_bits);
-            current_slot >>= metadata_->memento_bits;
-            current_full_bits -= metadata_->memento_bits;
-            // skip payload as well if exists
-            if (metadata_->payload_bits > 0) {
-              if (current_full_bits < metadata_->payload_bits) {
-                pos++;
-                current_slot |= get_slot(pos) << current_full_bits;
-                current_full_bits += metadata_->bits_per_slot;
-              }
-              current_payload = current_slot & BITMASK(metadata_->payload_bits);
-              current_slot >>= metadata_->payload_bits;
-              current_full_bits -= metadata_->payload_bits;
-            }
-            if (target_memento <= current_memento) {
-              *candidate_payload = current_payload;
-              return current_memento;
-            }
-            mementos_left--;
+          GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, metadata_->memento_bits,
+                                      data_bit_pos, data_block_ind);
+          current_memento = data & BITMASK(metadata_->memento_bits);
+          data >>= metadata_->memento_bits;
+          filled_bits -= metadata_->memento_bits;
+          if (metadata_->payload_bits > 0) {
+            GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits,
+                                        metadata_->payload_bits,
+                                        data_bit_pos, data_block_ind);
+            current_payload = data & BITMASK(metadata_->payload_bits);
+            data >>= metadata_->payload_bits;
+            filled_bits -= metadata_->payload_bits;
+          }
+          if (target_memento <= current_memento) {
+            *candidate_payload = current_payload;
+            return current_memento;
+          }
+          mementos_left--;
         } while (mementos_left);
         return max_memento;
     }
