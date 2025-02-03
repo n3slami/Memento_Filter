@@ -2277,7 +2277,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
 
     const bool size_two_prefix_set = (m1 < m2);
     if (size_two_prefix_set) {
-        if (metadata_->bits_per_slot < 2 * metadata_->memento_bits) {
+      if (metadata_->bits_per_slot < 2 * metadata_->memento_bits + metadata_->payload_bits) {
             int32_t err = make_n_empty_slots_for_memento_list(bucket_index, pos + 1, 2);
             if (err < 0)    // Check that the new data fits
                 return err;
@@ -2291,7 +2291,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
             if (new_memento < m1) {
                 value = (f1 << memento_bits) | m2;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          metadata_->bits_per_slot, dest_bit_pos,
+                                          metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos,
                                           dest_block_ind);
                 if (metadata_->payload_bits > 0) {
                     APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
@@ -2300,7 +2300,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
                 }
                 value = (f2 << memento_bits) | new_memento;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          metadata_->bits_per_slot, dest_bit_pos,
+                                          metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos,
                                           dest_block_ind);
                 if (metadata_->payload_bits > 0) {
                     APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, new_payload,
@@ -2321,7 +2321,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
             else if (m2 < new_memento) {
                 value = (f1 << memento_bits) | new_memento;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          metadata_->bits_per_slot, dest_bit_pos,
+                                          metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos,
                                           dest_block_ind);
                 if (metadata_->payload_bits > 0) {
                     APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, new_payload,
@@ -2330,7 +2330,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
                 }
                 value = (f2 << memento_bits) | m1;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          metadata_->bits_per_slot, dest_bit_pos,
+                                          metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos,
                                           dest_block_ind);
                 if (metadata_->payload_bits > 0) {
                     APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m1_payload,
@@ -2351,7 +2351,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
             else {
                 value = (f1 << memento_bits) | m2;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value,
-                                          metadata_->bits_per_slot, dest_bit_pos,
+                                          metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos,
                                           dest_block_ind);
                 if (metadata_->payload_bits > 0) {
                     APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m2_payload,
@@ -2360,7 +2360,7 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
                 }
                 value = (f2 << memento_bits) | m1;
                 APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, value, 
-                                          metadata_->bits_per_slot, dest_bit_pos,
+                                          metadata_->fingerprint_bits + metadata_->memento_bits + expandable, dest_bit_pos,
                                           dest_block_ind);
                 if (metadata_->payload_bits > 0) {
                     APPEND_WRITE_PAYLOAD_WORD(payload, current_full_prefix, m1_payload,
