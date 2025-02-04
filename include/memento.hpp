@@ -1821,10 +1821,16 @@ inline int32_t Memento<expandable>::remove_slots_and_shift_remainders_and_runend
         uint64_t i;
         for (i = remove_index; i < current_slot; i++) {
             set_slot(i, get_slot(i + 1));
+            if (metadata_->payload_bits > 0) {
+              set_slot_payload(i, get_slot_payload(i + 1));
+            }
             if (is_runend(i) != is_runend(i + 1))
                 METADATA_WORD(runends, i) ^= 1ULL << (i % 64);
         }
         set_slot(i, 0);
+        if (metadata_->payload_bits > 0) {
+            set_slot_payload(i, 0);
+        }
         METADATA_WORD(runends, i) &= ~(1ULL << (i % 64));
 
         current_distance--;
@@ -2110,10 +2116,10 @@ inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64
     uint64_t data_block_ind = (pos + 2) / slots_per_block_;
     GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
                                 data_bit_pos, data_block_ind);
-    old_memento_cnt += data & max_memento_value;
     data >>= memento_bits;
     filled_bits -= memento_bits;
     if (m1 >= m2) {
+        old_memento_cnt += data & max_memento_value;
         *old_slot_count = number_of_slots_used_for_memento_list(pos + 2) + 2;
         if (old_memento_cnt == max_memento_value + 2) {
             uint64_t length = 2, pw = 1;
