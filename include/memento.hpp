@@ -3938,7 +3938,8 @@ inline int32_t Memento<expandable>::range_query(uint64_t l_key, uint64_t l_memen
                                                                 << (32 - metadata_->original_quotient_bits)), orig_nslots);
             const uint64_t mid_hash_bucket_index = (mid_fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                 | ((mid_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-            const uint64_t mid_hash_fingerprint = (mid_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
+            const uint64_t mid_hash_fingerprint = (mid_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+                                                    | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
             if (!is_occupied(mid_hash_bucket_index))
                 continue;
@@ -4099,9 +4100,11 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
                                                     << (32 - orig_quotient_size)), orig_nslots);
 	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t hash_fingerprint = (cur_prefix_hash >> bucket_index_hash_size) & BITMASK(filter_.metadata_->fingerprint_bits);
-    const uint64_t orig_prefix_hash = (fast_reduced_part | (cur_prefix_hash & (~BITMASK(orig_quotient_size))))
-                                        & BITMASK(filter_.metadata_->key_bits);
+	const uint64_t hash_fingerprint = (cur_prefix_hash >> bucket_index_hash_size) & BITMASK(filter_.metadata_->fingerprint_bits)
+                                        | (static_cast<uint64_t>(expandable) << filter_.metadata_->fingerprint_bits);
+    const uint64_t orig_prefix_hash = ((fast_reduced_part | (cur_prefix_hash & (~BITMASK(orig_quotient_size))))
+                                        & BITMASK(filter_.metadata_->key_bits))
+                                        | (static_cast<uint64_t>(expandable) << filter_.metadata_->key_bits);
     cur_prefix_hash = (hash_fingerprint << bucket_index_hash_size) | hash_bucket_index;
     
     mementos_.clear();
@@ -4112,8 +4115,24 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
     while (it_ != filter_.hash_end()) {
         // TODO: we can optimize this by getting the mementos and the size together
         const uint32_t memento_count = it_.get(it_hash);
-        if (it_hash != orig_prefix_hash)
-            break;
+        if constexpr (expandable) {
+            const uint64_t compare_mask = BITMASK(highbit_position(it_hash));
+            if (!CMP_MASK_FINGERPRINT(it_hash, orig_prefix_hash, compare_mask)) {
+                if (it_.is_at_runend())
+                    break;
+                ++it_;
+                continue;
+            }
+        }
+        else {
+            if (it_hash != orig_prefix_hash) {
+                if (it_.is_at_runend())
+                    break;
+                ++it_;
+                continue;
+            }
+        }
+
         const uint32_t old_list_length = mementos_.size();
         mementos_.resize(old_list_length + memento_count);
         if (filter_.metadata_->payload_bits > 0) {
@@ -4599,7 +4618,7 @@ inline bool Memento<expandable>::hash_iterator::is_at_runend() const {
     uint64_t current_memento = filter_.get_memento(current_);
     uint64_t next_memento = filter_.get_memento(current_ + 1);
     if (current_memento < next_memento)
-        return false;
+        return filter_.is_runend(current_ + 1);
     return filter_.is_runend(current_ + filter_.number_of_slots_used_for_memento_list(current_ + 2) + 1);
 }
 

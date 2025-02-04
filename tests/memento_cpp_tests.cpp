@@ -12,6 +12,7 @@
 #include <random>
 #include <set>
 #include <tuple>
+#include <vector>
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 
 #include "memento.hpp"
@@ -1045,6 +1046,55 @@ TEST_SUITE("expandable memento") {
                     check_set.insert({capped_hash, memento, 0});
             }
             assert_memento_contents(check_set, memento);
+        }
+    }
+
+    TEST_CASE("iterator") {
+        const uint32_t n_elements = 100000;
+        const uint32_t expansions = 2;
+        const uint32_t rng_seed = 2;
+        const uint32_t geometric_modulo = 3;
+        std::mt19937 rng(rng_seed);
+        std::multiset<std::pair<uint64_t, uint64_t>> check_set;
+        std::map<uint64_t, std::vector<uint64_t>> prefix_sets;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / load_factor + 10000;
+        const uint32_t key_bits = 32;
+        const uint32_t memento_bits = 5;
+
+        Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::Default, seed};
+        const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+        const uint8_t flags = Memento<true>::flag_no_lock;
+
+        for (uint32_t expansion_count = 0; expansion_count < expansions; expansion_count++) {
+            std::vector<uint64_t> current_prefix_pool;
+            if (expansion_count > 0)
+                for (auto it = prefix_sets.begin(); it != prefix_sets.end(); it++)
+                    current_prefix_pool.push_back(it->first);
+            for (uint32_t i = 0; i < n_elements; i++) {
+                const uint64_t key_prefix = expansion_count > 0 ? current_prefix_pool[rng() % current_prefix_pool.size()]
+                                                                : rng() & BITMASK(32);
+                do {
+                    const uint64_t key_memento = rng() & BITMASK(memento_bits);
+                    prefix_sets[key_prefix].push_back(key_memento);
+                    memento.insert(key_prefix, key_memento, flags);
+                    i++;
+                } while (rng() % geometric_modulo > 0);
+                i--;
+                std::sort(prefix_sets[key_prefix].begin(), prefix_sets[key_prefix].end());
+            }
+
+            for (auto it = prefix_sets.begin(); it != prefix_sets.end(); it++) {
+                const uint64_t key_prefix = it->first;
+                const uint64_t l_key = key_prefix << memento_bits;
+                const uint64_t r_key = l_key | BITMASK(memento_bits);
+                uint32_t check_ind = 0;
+                for (auto memento_it = memento.begin(l_key, r_key); memento_it != memento.end(); memento_it++) {
+                    const uint64_t key = (key_prefix << memento_bits) | it->second[check_ind++];
+                    REQUIRE_EQ(*memento_it, key);
+                }
+            }
         }
     }
 
