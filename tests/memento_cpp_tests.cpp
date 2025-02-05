@@ -1233,7 +1233,6 @@ TEST_SUITE("expandable memento with payloads") {
 //        }
     }
 
-    // TODO: fix
     TEST_CASE("expansions") {
         const uint32_t n_elements = 1000000;
         const uint32_t n_expansions = 4;
