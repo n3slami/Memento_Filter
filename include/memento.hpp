@@ -42,6 +42,9 @@
 #include <utility>
 #include <immintrin.h>
 #include <vector>
+#include <shared_mutex>
+#include <mutex>
+#include <thread>
 
 namespace memento {
 /******************************************************************
@@ -530,6 +533,30 @@ public:
         return h;
     }
 
+    // given a base bucket index and the modify index checks whether the modify index is within
+    // 2 regions of the base bucket index and if not fails the execution.
+    // The reason for that is because we lock only 2 consecutive regions at a time for inserts and deletes.
+    static bool assertBucketLocation(const uint64_t base_bucket_index, const uint64_t modify_index,
+                                         const uint64_t num_regions_locked_by_default = 2) {
+      uint64_t base_bucket_index_region = base_bucket_index / num_slots_to_lock_;
+      uint64_t hash_bucket_index_to_lock = modify_index / num_slots_to_lock_;
+      // check if the difference in absolute value between the base bucket index region
+      // and the modify index region is bigger than 2 if so fail the execution.
+      uint64_t diff = std::abs(static_cast<int64_t>(base_bucket_index_region) - static_cast<int64_t>(hash_bucket_index_to_lock));
+
+      // If the difference is greater than 2, fail the execution
+      if (diff > 2) {
+        std::cerr << "Execution failed: Difference between bucket regions exceeds 2!" << std::endl;
+        // log details
+        std::cerr << "Base bucket index: " << base_bucket_index << std::endl;
+        std::cerr << "Modify index: " << modify_index << std::endl;
+        std::cerr << "Base bucket index region: " << base_bucket_index_region << std::endl;
+        std::cerr << "Modify index region: " << hash_bucket_index_to_lock << std::endl;
+        exit(1);  // Uncomment this if you want to terminate the program
+      }
+      return true;
+    }
+
 private:
     /** Must be >= 6.  6 seems fastest. */
     static constexpr uint32_t block_offset_bits_ = 6;
@@ -567,6 +594,10 @@ private:
         volatile int metadata_lock;
         volatile int *locks;
         wait_time_data *wait_times;
+        // shared mutex to be used during expansion
+        // every operation acquires a shared lock
+        // expansion acquires an exclusive lock
+        std::shared_mutex rw_lock;
     };
 
     struct qfmetadata {
@@ -1789,6 +1820,7 @@ inline int32_t Memento<expandable>::remove_slots_and_shift_remainders_and_runend
     uint64_t current_distance = remove_length;
     int64_t last_slot_in_initial_cluster = -1;
     int ret_current_distance = current_distance;
+    assertBucketLocation(bucket_index, remove_index);
 
     while (current_distance > 0) { // every iteration of this loop deletes one slot from the item and shifts the cluster accordingly
                                    // start with an occupied-runend pair
@@ -2885,6 +2917,7 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
     uint64_t shift_distance = 0;
     for (int i = empty_runs_ind - 2; i >= 2; i -= 2) {
         shift_distance += empty_runs[i + 1];
+        assertBucketLocation(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1);
         shift_slots(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1, shift_distance);
         shift_runends(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1, shift_distance);
     }
@@ -2929,6 +2962,7 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
     uint64_t insert_index;
     if (is_occupied(hash_bucket_index)) {
         insert_index = upper_bound_fingerprint_in_run(runstart_index, hash_fingerprint);
+        assertBucketLocation(hash_bucket_index, insert_index);
 
         if (insert_index < empty_runs[0]) {
             shift_slots(insert_index, empty_runs[0] - 1, new_slot_count);
@@ -2944,6 +2978,8 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
         else {
             insert_index = runend_index + 1;
             if (insert_index < empty_runs[0]) {
+                assertBucketLocation(hash_bucket_index, insert_index);
+                assertBucketLocation(hash_bucket_index, empty_runs[0] - 1);
                 shift_slots(insert_index, empty_runs[0] - 1, new_slot_count);
                 shift_runends(insert_index, empty_runs[0] - 1, new_slot_count);
             }
@@ -3177,6 +3213,8 @@ inline uint64_t Memento<expandable>::serialized_size() const {
 
 template <bool expandable>
 inline int64_t Memento<expandable>::resize(uint64_t nslots) {
+    // acquire an exclusive lock to resize the filter
+    std::unique_lock<std::shared_mutex> lock(runtimedata_->rw_lock);
     Memento new_memento(nslots, metadata_->key_bits + expandable, metadata_->memento_bits,
                       metadata_->hash_mode, metadata_->seed, metadata_->original_quotient_bits, metadata_->payload_bits);
     new_memento.set_auto_resize(metadata_->auto_resize);
@@ -3215,6 +3253,8 @@ template <bool expandable>
 inline int32_t Memento<expandable>::insert_mementos(uint64_t key, uint64_t mementos[],
                                                     uint64_t memento_count, uint8_t flags,
                                                     uint64_t payloads[]) {
+    // first acquire a read lock on the entire filter to avoid issues with expansion
+    std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
     uint32_t new_slot_count = 1 + (memento_count + 1) / 2;
 	// We fill up the CQF up to 95% load factor.
 	// This is a very conservative check.
@@ -3264,6 +3304,9 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
         else
             return err_no_space;
     }
+
+    // no resize is needed acquire a read lock on the entire filter
+    std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
 
     if (GET_KEY_HASH(flags) != flag_key_is_hash) {
         if (metadata_->hash_mode == hashmode::Default)
@@ -3340,7 +3383,8 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
         }
 
         if (add_to_sorted_list) {
-            // Matching sorted list with a complete fingerprint target 
+            // Matching sorted list with a complete fingerprint target
+            assertBucketLocation(hash_bucket_index, insert_index);
             res = add_memento_to_sorted_list(hash_bucket_index, insert_index, memento, payload);
 
             if (res < 0)
@@ -3352,6 +3396,8 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
             insert_index = upper_bound_fingerprint_in_run(runstart_index, hash_fingerprint);
             const uint64_t next_empty_slot = find_first_empty_slot(hash_bucket_index);
             assert(next_empty_slot >= insert_index);
+            assertBucketLocation(hash_bucket_index, insert_index);
+            assertBucketLocation(hash_bucket_index, next_empty_slot);
 
             if (insert_index < next_empty_slot) {
                 shift_slots(insert_index, next_empty_slot - 1, 1);
@@ -3375,11 +3421,14 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
     else {
         const uint64_t next_empty_slot = find_first_empty_slot(hash_bucket_index);
         assert(next_empty_slot >= hash_bucket_index);
+        assertBucketLocation(hash_bucket_index, next_empty_slot);
         if (hash_bucket_index == next_empty_slot) {
             insert_index = hash_bucket_index;
+            assertBucketLocation(hash_bucket_index, insert_index);
         }
         else {
             insert_index = runend_index + 1;
+            assertBucketLocation(hash_bucket_index, insert_index);
             if (insert_index < next_empty_slot) {
                 shift_slots(insert_index, next_empty_slot - 1, 1);
                 shift_runends(insert_index, next_empty_slot - 1, 1);
@@ -3412,6 +3461,8 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
 // Currently not supported with payloads
 template <bool expandable>
 inline void Memento<expandable>::bulk_load(uint64_t *sorted_hashes, uint64_t n, uint8_t flags) {
+    // first acquire a read lock on the entire filter to avoid issues with expansion
+    std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
     assert(flags & flag_key_is_hash);
 
     const uint64_t fingerprint_mask = BITMASK(metadata_->fingerprint_bits);
@@ -3477,6 +3528,8 @@ inline void Memento<expandable>::bulk_load(uint64_t *sorted_hashes, uint64_t n, 
 
 template <bool expandable>
 inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento, uint8_t flags) {
+    // first acquire a read lock on the entire filter to avoid issues with expansion
+    std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
     if (GET_KEY_HASH(flags) != flag_key_is_hash) {
         if (metadata_->hash_mode == hashmode::Default)
             key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
@@ -3535,6 +3588,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
             if (is_runend(fingerprint_pos - 1))
                 break;
         }
+        assertBucketLocation(hash_bucket_index, fingerprint_pos);
         for (uint32_t i = 1; i <= metadata_->fingerprint_bits; i++)
             matching_cnt[i] += matching_cnt[i - 1];
 
@@ -3707,6 +3761,8 @@ inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64
 
 template <bool expandable>
 inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, uint8_t flags, uint64_t* payload) const {
+    // first acquire a read lock on the entire filter to avoid issues with expansion
+    std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
 	if (GET_KEY_HASH(flags) != flag_key_is_hash) {
 		if (metadata_->hash_mode == hashmode::Default)
 			key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
@@ -3784,6 +3840,8 @@ template <bool expandable>
 inline int32_t Memento<expandable>::range_query(uint64_t l_key, uint64_t l_memento,
                                                 uint64_t r_key, uint64_t r_memento, 
                                                 uint8_t flags) const {
+    // first acquire a read lock on the entire filter to avoid issues with expansion
+    std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
     const uint64_t orig_l_key = l_key;
     const uint64_t orig_r_key = r_key;
 	if (GET_KEY_HASH(flags) != flag_key_is_hash) {
@@ -4089,6 +4147,8 @@ inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::op
 
 template <bool expandable>
 inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
+    // first acquire a read lock on the entire filter to avoid issues with expansion
+    std::shared_lock<std::shared_mutex> shared_lock(filter_.runtimedata_->rw_lock);
     it_ = filter_.hash_begin(cur_prefix_, Memento::flag_no_lock);
     uint64_t cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter_.get_hash_seed());
     const uint32_t bucket_index_hash_size = filter_.get_bucket_index_hash_size();
