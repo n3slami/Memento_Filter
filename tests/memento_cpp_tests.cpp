@@ -665,7 +665,7 @@ TEST_SUITE("standard memento") {
                 3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230};
             const uint64_t l = (100ULL << memento_bits) | 0ULL;
             const uint64_t r = (100ULL << memento_bits) | BITMASK(memento_bits);
-            auto it = memento.begin(l, r);
+            auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
             for (int32_t i = 0; i < 14; i++) {
                 REQUIRE_NE(it, memento.end());
                 REQUIRE_EQ(*it, check_keys[i]);
@@ -679,7 +679,7 @@ TEST_SUITE("standard memento") {
                 3220, 3225, 3226, 3227, 3228, 3229};
             const uint64_t l = (100ULL << memento_bits) | 3ULL;
             const uint64_t r = (100ULL << memento_bits) | 29ULL;
-            auto it = memento.begin(l, r);
+            auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
             for (int32_t i = 0; i < 11; i++) {
                 REQUIRE_NE(it, memento.end());
                 REQUIRE_EQ(*it, check_keys[i]);
@@ -706,7 +706,7 @@ TEST_SUITE("standard memento") {
                 3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260};
             const uint64_t l = (100ULL << memento_bits) | 0ULL;
             const uint64_t r = (101ULL << memento_bits) | BITMASK(memento_bits);
-            auto it = memento.begin(l, r);
+            auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
             for (int32_t i = 0; i < 43; i++) {
                 REQUIRE_NE(it, memento.end());
                 REQUIRE_EQ(*it, check_keys[i]);
@@ -730,7 +730,7 @@ TEST_SUITE("standard memento") {
                 3303, 3306, 3309, 3312, 3315, 3318, 3321, 3324, 3327};
             const uint64_t l = (100ULL << memento_bits) | 0ULL;
             const uint64_t r = (103ULL << memento_bits) | BITMASK(memento_bits);
-            auto it = memento.begin(l, r);
+            auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
             for (int32_t i = 0; i < 54; i++) {
                 REQUIRE_NE(it, memento.end());
                 REQUIRE_EQ(*it, check_keys[i]);
@@ -749,7 +749,7 @@ TEST_SUITE("standard memento") {
 
                 const uint64_t l = (key_prefix << memento_bits) | 0ULL;
                 const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
-                auto it = memento.begin(l, r);
+                auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
                 for (int32_t i = 0; i < check_keys.size(); i++) {
                     REQUIRE_NE(it, memento.end());
                     REQUIRE_EQ(*it, check_keys[i]);
@@ -786,7 +786,7 @@ TEST_SUITE("standard memento") {
                 3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230};
             const uint64_t l = (100ULL << memento_bits) | 0ULL;
             const uint64_t r = (100ULL << memento_bits) | BITMASK(memento_bits);
-            auto it = memento.begin(l, r);
+            auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
             for (int32_t i = 0; i < 14; i++) {
                 REQUIRE_NE(it, memento.end());
                 REQUIRE_EQ(*it, check_keys[i]);
@@ -800,7 +800,7 @@ TEST_SUITE("standard memento") {
                 3220, 3225, 3226, 3227, 3228, 3229};
             const uint64_t l = (100ULL << memento_bits) | 3ULL;
             const uint64_t r = (100ULL << memento_bits) | 29ULL;
-            auto it = memento.begin(l, r);
+            auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
             for (int32_t i = 0; i < 11; i++) {
                 REQUIRE_NE(it, memento.end());
                 REQUIRE_EQ(*it, check_keys[i]);
@@ -872,7 +872,7 @@ TEST_SUITE("standard memento") {
 
                 const uint64_t l = (key_prefix << memento_bits) | 0ULL;
                 const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
-                auto it = memento.begin(l, r);
+                auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
                 for (int32_t i = 0; i < check_keys.size(); i++) {
                     REQUIRE_NE(it, memento.end());
                     REQUIRE_EQ(*it, check_keys[i]);
@@ -905,7 +905,7 @@ TEST_SUITE("standard memento") {
 
                 const uint64_t l = (key_prefix << memento_bits) | 0ULL;
                 const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
-                auto it = memento.begin(l, r);
+                auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
                 for (int32_t j = 0; j < check_keys.size(); j++) {
                     REQUIRE_NE(it, memento.end());
                     REQUIRE_EQ(*it, check_keys[j]);
@@ -940,7 +940,7 @@ TEST_SUITE("standard memento") {
 
                 const uint64_t l = (key_prefix << memento_bits) | 0ULL;
                 const uint64_t r = (key_prefix << memento_bits) | BITMASK(memento_bits);
-                auto it = memento.begin(l, r);
+                auto it = memento.begin(l, r, Memento<false>::flag_no_lock);
                 for (int32_t j = 0; j < check_keys.size(); j++) {
                     REQUIRE_NE(it, memento.end());
                     REQUIRE_EQ(*it, check_keys[j]);
@@ -1090,7 +1090,7 @@ TEST_SUITE("expandable memento") {
                 const uint64_t l_key = key_prefix << memento_bits;
                 const uint64_t r_key = l_key | BITMASK(memento_bits);
                 uint32_t check_ind = 0;
-                for (auto memento_it = memento.begin(l_key, r_key); memento_it != memento.end(); memento_it++) {
+                for (auto memento_it = memento.begin(l_key, r_key, Memento<false>::flag_no_lock); memento_it != memento.end(); memento_it++) {
                     const uint64_t key = (key_prefix << memento_bits) | it->second[check_ind++];
                     REQUIRE_EQ(*memento_it, key);
                 }
