@@ -545,7 +545,7 @@ public:
       uint64_t diff = std::abs(static_cast<int64_t>(base_bucket_index_region) - static_cast<int64_t>(hash_bucket_index_to_lock));
 
       // If the difference is greater than 2, fail the execution
-      if (diff > 2) {
+      if (diff >= num_regions_locked_by_default) {
         std::cerr << "Execution failed: Difference between bucket regions exceeds 2!" << std::endl;
         // log details
         std::cerr << "Base bucket index: " << base_bucket_index << std::endl;
