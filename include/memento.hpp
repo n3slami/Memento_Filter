@@ -774,7 +774,7 @@ public:
      * a positive, but the corresponding fingerprint can be rejuvenated. May
      * return `err_couldnt_lock` if called with `QF_TRY_LOCK`.
      */
-    int32_t point_query(uint64_t key, uint64_t memento, uint8_t flags, uint64_t* payload = nullptr) const;
+    int32_t point_query(uint64_t key, uint64_t memento, uint8_t flags, uint64_t* payload = nullptr);
 
     /** 
      * Checks the memento filter for the existence of any point in the range
@@ -895,11 +895,11 @@ public:
     class iterator {
         friend class Memento;
     public:
-        iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key);
-        iterator(const Memento &filter, const uint64_t l_prefix,
+        iterator(Memento<expandable>& filter, const uint64_t l_key, const uint64_t r_key, const uint8_t flags = 0);
+        iterator(Memento<expandable> &filter, const uint64_t l_prefix,
                  const uint64_t l_memento, const uint64_t r_prefix,
-                 const uint64_t r_memento);
-        iterator(const Memento& filter):
+                 const uint64_t r_memento, const uint8_t flags);
+        iterator(Memento<expandable>& filter):
             filter_{filter},
             cur_prefix_{std::numeric_limits<uint64_t>::max()},
             it_{filter.hash_end()} {}
@@ -917,7 +917,7 @@ public:
     private:
         void fetch_matching_prefix_mementos();
 
-        const Memento& filter_;
+        Memento& filter_;
         uint64_t l_key_;
         uint64_t r_key_;
         uint64_t cur_prefix_ = 0;
@@ -925,6 +925,7 @@ public:
         uint64_t cur_ind_ = 0;
         std::vector<uint64_t> mementos_;
         std::vector<uint64_t> payloads_;
+        uint8_t flags_ = 0; // to support locking
     };
 
     /**
@@ -936,12 +937,13 @@ public:
      * @returns The corresponding iterator.
      */
 	iterator begin(uint64_t l_key=0,
-                   uint64_t r_key=std::numeric_limits<uint64_t>::max()) const;
+                   uint64_t r_key = std::numeric_limits<uint64_t>::max(),
+                   uint8_t flags = Memento::flag_no_lock);
 
     iterator begin(uint64_t l_prefix, uint64_t l_memento, uint64_t r_prefix,
-                   uint64_t r_memento) const;
+                   uint64_t r_memento, uint8_t flags);
 
-	iterator end() const;
+	iterator end();
 
 
     /**
@@ -1350,47 +1352,47 @@ inline bool Memento<expandable>::memento_lock(uint64_t hash_bucket_index, bool r
     // to avoid deadlocks with concurrent inserts
     uint32_t left_to_lock = num_regions_to_lock;
     if (reverse) {
-        int32_t hash_bucket_index_to_lock = (hash_bucket_index / num_slots_to_lock_) - num_regions_to_lock + 1;
+        int32_t region_to_lock = (hash_bucket_index / num_slots_to_lock_) - num_regions_to_lock + 1;
         while(left_to_lock > 0) {
             // if we overflow with the regions no need to lock
-            if (hash_bucket_index_to_lock < 0) {
+            if (region_to_lock < 0) {
                 continue;
             }
             // try locking
             if (!spin_lock(
-                    &runtimedata_->locks[hash_bucket_index_to_lock],
+                    &runtimedata_->locks[region_to_lock],
                     lock_flag)) {
                 // we failed locking so release all acquired locks
                 while (left_to_lock < num_regions_to_lock) {
-                    hash_bucket_index_to_lock--;
-                    spin_unlock(&runtimedata_->locks[hash_bucket_index_to_lock]);
+                    region_to_lock -= 1;
+                    spin_unlock(&runtimedata_->locks[region_to_lock]);
                     left_to_lock++;
                 }
                 return false;
             }
-            hash_bucket_index_to_lock++;
+            region_to_lock += 1;
             left_to_lock--;
         }
     } else {
-        uint32_t hash_bucket_index_to_lock = hash_bucket_index / num_slots_to_lock_;
+        uint32_t region_to_lock = hash_bucket_index / num_slots_to_lock_;
         while(left_to_lock > 0) {
             // if we overflow with the regions no need to lock
-            if (hash_bucket_index_to_lock >= runtimedata_->num_locks) {
+            if (region_to_lock >= runtimedata_->num_locks) {
                 continue;
             }
             // try locking
             if (!spin_lock(
-                    &runtimedata_->locks[hash_bucket_index_to_lock],
+                    &runtimedata_->locks[region_to_lock],
                     lock_flag)) {
                 // we failed locking so release all acquired locks
                 while (left_to_lock < num_regions_to_lock) {
-                    hash_bucket_index_to_lock--;
-                    spin_unlock(&runtimedata_->locks[hash_bucket_index_to_lock]);
+                    region_to_lock -= 1;
+                    spin_unlock(&runtimedata_->locks[region_to_lock]);
                     left_to_lock++;
                 }
                 return false;
             }
-            hash_bucket_index_to_lock++;
+            region_to_lock += 1;
             left_to_lock--;
         }
     }
@@ -1402,20 +1404,20 @@ template <bool expandable>
 inline void Memento<expandable>::memento_unlock(uint64_t hash_bucket_index, bool reverse,
                                                 uint32_t num_regions_to_unlock) {
     uint32_t left_to_unlock = num_regions_to_unlock;
-    int32_t hash_bucket_index_to_lock;
+    int32_t region_to_unlock;
     // we unlock in the reverse order we acquired
     if (reverse) {
-        hash_bucket_index_to_lock = hash_bucket_index / num_slots_to_lock_;
+        region_to_unlock = hash_bucket_index / num_slots_to_lock_;
     } else {
-        hash_bucket_index_to_lock = (hash_bucket_index / num_slots_to_lock_ + num_regions_to_unlock) - 1;
+        region_to_unlock = (hash_bucket_index / num_slots_to_lock_ + num_regions_to_unlock) - 1;
     }
     while(left_to_unlock > 0) {
         // if we overflow with the regions no need to unlock
-        if (hash_bucket_index_to_lock < 0 || (uint32_t) hash_bucket_index_to_lock >= runtimedata_->num_locks) {
+        if (region_to_unlock < 0 || (uint32_t)region_to_unlock >= runtimedata_->num_locks) {
             continue;
         }
-        spin_unlock(&runtimedata_->locks[hash_bucket_index_to_lock]);
-        hash_bucket_index_to_lock--;
+        spin_unlock(&runtimedata_->locks[region_to_unlock]);
+        region_to_unlock -= 1;
         left_to_unlock--;
     }
 }
@@ -3760,7 +3762,7 @@ inline uint64_t Memento<expandable>::lower_bound_mementos_for_fingerprint(uint64
 
 
 template <bool expandable>
-inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, uint8_t flags, uint64_t* payload) const {
+inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, uint8_t flags, uint64_t* payload) {
     // first acquire a read lock on the entire filter to avoid issues with expansion
     std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
 	if (GET_KEY_HASH(flags) != flag_key_is_hash) {
@@ -3780,8 +3782,16 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
 	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
 
-	if (!is_occupied(hash_bucket_index))
-		return false;
+    if (GET_NO_LOCK(flags) != flag_no_lock) {
+        if (!memento_lock(hash_bucket_index, /* reverse */ false, flags))
+            return err_couldnt_lock;
+    }
+
+	if (!is_occupied(hash_bucket_index)) {
+        if (GET_NO_LOCK(flags) != flag_no_lock)
+            memento_unlock(hash_bucket_index, /* reverse */ false);
+        return false;
+    }
 
     const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                     | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
@@ -3793,6 +3803,7 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
     // Find the shortest matching fingerprint that gives a positive
     int64_t fingerprint_pos = runstart_index;
     while (true) {
+        assertBucketLocation(hash_bucket_index, fingerprint_pos);
         fingerprint_pos = next_matching_fingerprint_in_run(fingerprint_pos, hash_fingerprint);
         if (fingerprint_pos < 0) // Matching fingerprints exhausted
             break;
@@ -3807,7 +3818,8 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
                 if (payload != nullptr && metadata_->payload_bits > 0) {
                   *payload = candidate_payload;
                 }
-
+                if (GET_NO_LOCK(flags) != flag_no_lock)
+                    memento_unlock(hash_bucket_index, /* reverse */ false);
                 return positive_res;
             }
 
@@ -3823,6 +3835,8 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
                 if (payload != nullptr && metadata_->payload_bits > 0) {
                     *payload = get_slot_payload(fingerprint_pos);
                 }
+                if (GET_NO_LOCK(flags) != flag_no_lock)
+                    memento_unlock(hash_bucket_index, /* reverse */ false);
                 return positive_res;
             }
             fingerprint_pos++;
@@ -3832,6 +3846,8 @@ inline int32_t Memento<expandable>::point_query(uint64_t key, uint64_t memento, 
             break;
     }
 
+    if (GET_NO_LOCK(flags) != flag_no_lock)
+        memento_unlock(hash_bucket_index, /* reverse */ false);
     return 0;
 }
 
@@ -4065,33 +4081,37 @@ template <bool expandable>
 inline typename Memento<expandable>::iterator Memento<expandable>::begin(const uint64_t l_prefix,
                                         const uint64_t l_memento,
                                         const uint64_t r_prefix,
-                                        const uint64_t r_memento) const {
-    return iterator(*this, l_prefix, l_memento, r_prefix, r_memento);
+                                        const uint64_t r_memento,
+                                        const uint8_t flags) {
+    return iterator(*this, l_prefix, l_memento, r_prefix, r_memento, flags);
 }
 
 template <bool expandable>
-inline typename Memento<expandable>::iterator Memento<expandable>::begin(uint64_t l_key, uint64_t r_key) const {
-    return iterator(*this, l_key, r_key);
+inline typename Memento<expandable>::iterator Memento<expandable>::begin(uint64_t l_key, uint64_t r_key,
+                                                                         uint8_t flags) {
+    return iterator(*this, l_key, r_key, flags);
 }
 
 
 template <bool expandable>
-inline typename Memento<expandable>::iterator Memento<expandable>::end() const {
+inline typename Memento<expandable>::iterator Memento<expandable>::end() {
     return iterator(*this);
 }
 
 template <bool expandable>
-inline Memento<expandable>::iterator::iterator(const Memento<expandable> &filter,
+inline Memento<expandable>::iterator::iterator(Memento<expandable> &filter,
                                    const uint64_t l_prefix,
                                    const uint64_t l_memento,
                                    const uint64_t r_prefix,
-                                   const uint64_t r_memento)
+                                   const uint64_t r_memento,
+                                   const uint8_t flags)
     : filter_{filter},
       l_key_{(l_prefix << filter.get_num_memento_bits()) | l_memento},
       r_key_{(r_prefix << filter.get_num_memento_bits()) | r_memento},
       cur_prefix_{l_prefix},
-      it_{filter.hash_begin(cur_prefix_, Memento::flag_no_lock)},
-      cur_ind_{0} {
+      it_{filter.hash_begin(cur_prefix_, flags)},
+      cur_ind_{0},
+      flags_{flags} {
   fetch_matching_prefix_mementos();
   cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) -
              mementos_.begin();
@@ -4107,13 +4127,15 @@ inline Memento<expandable>::iterator::iterator(const Memento<expandable> &filter
 }
 
 template <bool expandable>
-inline Memento<expandable>::iterator::iterator(const Memento& filter, const uint64_t l_key, const uint64_t r_key):
+inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l_key,
+                                               const uint64_t r_key, const uint8_t flags):
         filter_{filter},
         l_key_{l_key},
         r_key_{r_key},
         cur_prefix_{l_key >> filter.get_num_memento_bits()},
-        it_{filter.hash_begin(cur_prefix_, Memento<expandable>::flag_no_lock)},
-        cur_ind_{0} {
+        it_{filter.hash_begin(cur_prefix_, flags_)},
+        cur_ind_{0},
+        flags_{flags} {
     const uint64_t l_memento = l_key & BITMASK(filter.get_num_memento_bits());
     const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
     const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
@@ -4149,7 +4171,7 @@ template <bool expandable>
 inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
     // first acquire a read lock on the entire filter to avoid issues with expansion
     std::shared_lock<std::shared_mutex> shared_lock(filter_.runtimedata_->rw_lock);
-    it_ = filter_.hash_begin(cur_prefix_, Memento::flag_no_lock);
+    it_ = filter_.hash_begin(cur_prefix_, flags_);
     uint64_t cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter_.get_hash_seed());
     const uint32_t bucket_index_hash_size = filter_.get_bucket_index_hash_size();
     const uint32_t orig_quotient_size = filter_.metadata_->original_quotient_bits;
@@ -4166,6 +4188,13 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
                                         & BITMASK(filter_.metadata_->key_bits))
                                         | (static_cast<uint64_t>(expandable) << filter_.metadata_->key_bits);
     cur_prefix_hash = (hash_fingerprint << bucket_index_hash_size) | hash_bucket_index;
+
+    // lock the relevant regions
+    if (GET_NO_LOCK(flags_) != flag_no_lock) {
+      if (!filter_.memento_lock(hash_bucket_index, /* reverse */ false, flags_)) {
+        std::cerr << "Couldn't lock the bucket " << hash_bucket_index << std::endl;
+      }
+    }
     
     mementos_.clear();
     if (filter_.metadata_->payload_bits > 0) {
@@ -4204,6 +4233,10 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
         if (it_.is_at_runend())
             break;
         ++it_;
+    }
+    // release the locks
+    if (GET_NO_LOCK(flags_) != flag_no_lock) {
+      filter_.memento_unlock(hash_bucket_index, /* reverse */ false);
     }
     if (filter_.metadata_->payload_bits == 0) {
         // this is done only when there are no payloads because we don't
@@ -4274,7 +4307,8 @@ inline Memento<expandable>::iterator::iterator(const iterator& other):
         it_{other.it_},
         cur_ind_{other.cur_ind_},
         mementos_{other.mementos_},
-        payloads_{other.payloads_} {}
+        payloads_{other.payloads_},
+        flags_{other.flags_} {}
 
 
 template <bool expandable>
