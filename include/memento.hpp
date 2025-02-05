@@ -3938,7 +3938,7 @@ inline int32_t Memento<expandable>::range_query(uint64_t l_key, uint64_t l_memen
                                                                 << (32 - metadata_->original_quotient_bits)), orig_nslots);
             const uint64_t mid_hash_bucket_index = (mid_fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                 | ((mid_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-            const uint64_t mid_hash_fingerprint = (mid_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+            const uint64_t mid_hash_fingerprint = ((mid_hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                                     | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
             if (!is_occupied(mid_hash_bucket_index))
@@ -4100,7 +4100,7 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
                                                     << (32 - orig_quotient_size)), orig_nslots);
 	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                         | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-	const uint64_t hash_fingerprint = (cur_prefix_hash >> bucket_index_hash_size) & BITMASK(filter_.metadata_->fingerprint_bits)
+	const uint64_t hash_fingerprint = ((cur_prefix_hash >> bucket_index_hash_size) & BITMASK(filter_.metadata_->fingerprint_bits))
                                         | (static_cast<uint64_t>(expandable) << filter_.metadata_->fingerprint_bits);
     const uint64_t orig_prefix_hash = ((fast_reduced_part | (cur_prefix_hash & (~BITMASK(orig_quotient_size))))
                                         & BITMASK(filter_.metadata_->key_bits))
