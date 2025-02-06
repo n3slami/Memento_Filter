@@ -3091,6 +3091,10 @@ inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t
     /* initialize all the locks to 0 */
     runtimedata_->metadata_lock = 0;
     runtimedata_->locks = reinterpret_cast<volatile int32_t *>(new volatile int32_t[runtimedata_->num_locks]);
+    // reset all locks to 0
+    for (uint32_t i = 0; i < runtimedata_->num_locks; ++i) {
+      runtimedata_->locks[i] = 0;
+    }
 #ifdef LOG_WAIT_TIME
 	runtimedata->wait_times = reinterpret_cast<wait_time_data *>(new wait_time_data[runtimedata->num_locks + 1]);
 #endif
