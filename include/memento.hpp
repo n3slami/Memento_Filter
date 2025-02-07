@@ -485,6 +485,8 @@ public:
     static constexpr uint32_t flag_wait_for_lock = 0x04;
     static constexpr uint32_t flag_key_is_hash = 0x08; // It is sometimes useful to insert a key that has already been hashed.
 
+    static constexpr uint32_t preallocate_size_for_prefix_mementos = 10;
+
     // defined here to avoid collisions with other code
     /**
     * MurmurHash2, 64-bit versions, by Austin Appleby.
@@ -878,7 +880,8 @@ public:
 
         bool operator==(const hash_iterator& rhs) const;
         bool operator!=(const hash_iterator& rhs) const;
-        int32_t get(uint64_t& key, uint64_t *mementos=nullptr, uint64_t *payloads = nullptr) const;
+        int32_t get(uint64_t& key, std::vector<uint64_t>* mementos,
+                    std::vector<uint64_t>* payloads = nullptr) const;
 
     private:
         bool is_at_runend() const;
@@ -902,7 +905,12 @@ public:
         iterator(Memento<expandable>& filter):
             filter_{filter},
             cur_prefix_{std::numeric_limits<uint64_t>::max()},
-            it_{filter.hash_end()} {}
+            it_{filter.hash_end()} {
+          mementos_.reserve(preallocate_size_for_prefix_mementos);
+          if (filter.metadata_->payload_bits > 0) {
+            payloads_.reserve(preallocate_size_for_prefix_mementos);
+          }
+        }
         iterator(const iterator& other);
         iterator& operator=(const iterator &other);
         uint64_t operator*();
@@ -3231,17 +3239,25 @@ inline int64_t Memento<expandable>::resize(uint64_t nslots) {
 
 	// Copy keys from this filter into the new filter
 	int64_t ret_numkeys = 0;
-    uint64_t key, memento_count, mementos[1024], payloads[1024];
+    uint64_t key, memento_count;
+    // pre-load with zeroes
+    std::vector<uint64_t> mementos;
+    std::vector<uint64_t> payloads;
+    mementos.reserve(1024);
+    payloads.reserve(1024);
     for (auto it = hash_begin(); it != hash_end(); ++it) {
-		memento_count = it.get(key, mementos, payloads);
+      // clear existing vectors
+      mementos.clear();
+      payloads.clear();
+		memento_count = it.get(key, &mementos, &payloads);
 
         const uint64_t new_fingerprint_size = expandable ? highbit_position(key) - metadata_->key_bits + metadata_->fingerprint_bits - 1
                                                          : new_memento.metadata_->fingerprint_bits;
 
-		int ret = new_memento.insert_mementos(key, mementos, memento_count, 
+		int ret = new_memento.insert_mementos(key, mementos.data(), memento_count,
                                               new_fingerprint_size,
                                               flag_no_lock | flag_key_is_hash,
-                                              payloads);
+                                              payloads.data());
 		if (ret < 0)
 			return ret;
 		ret_numkeys += memento_count;
@@ -4120,6 +4136,10 @@ inline Memento<expandable>::iterator::iterator(Memento<expandable> &filter,
       it_{filter.hash_begin(cur_prefix_, flags)},
       cur_ind_{0},
       flags_{flags} {
+  mementos_.reserve(preallocate_size_for_prefix_mementos);
+  if (filter.metadata_->payload_bits > 0) {
+    payloads_.reserve(preallocate_size_for_prefix_mementos);
+  }
   fetch_matching_prefix_mementos();
   cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) -
              mementos_.begin();
@@ -4144,6 +4164,11 @@ inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l
         it_{filter.hash_begin(cur_prefix_, flags_)},
         cur_ind_{0},
         flags_{flags} {
+    // resize the vectors
+    mementos_.reserve(preallocate_size_for_prefix_mementos);
+    if (filter.metadata_->payload_bits > 0) {
+        payloads_.reserve(preallocate_size_for_prefix_mementos);
+    }
     const uint64_t l_memento = l_key & BITMASK(filter.get_num_memento_bits());
     const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
     const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
@@ -4209,12 +4234,23 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
         payloads_.clear();
     }
     uint64_t it_hash;
+    uint32_t old_list_length = 0;
     while (it_ != filter_.hash_end()) {
-        // TODO: we can optimize this by getting the mementos and the size together
-        const uint32_t memento_count = it_.get(it_hash);
+        uint32_t num_consumed_elements = 0;
+        if (filter_.metadata_->payload_bits > 0) {
+          num_consumed_elements += it_.get(it_hash, &mementos_, &payloads_);
+        } else {
+          num_consumed_elements += it_.get(it_hash, &mementos_);
+        }
         if constexpr (expandable) {
             const uint64_t compare_mask = BITMASK(highbit_position(it_hash));
             if (!CMP_MASK_FINGERPRINT(it_hash, orig_prefix_hash, compare_mask)) {
+                // resize memento and payload to discard the recently read mementos and payloads which are not
+                // equal to the orig_prefix hash
+                mementos_.resize(old_list_length);
+                if (filter_.metadata_->payload_bits > 0) {
+                  payloads_.resize(old_list_length);
+                }
                 if (it_.is_at_runend())
                     break;
                 ++it_;
@@ -4223,21 +4259,20 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
         }
         else {
             if (it_hash != orig_prefix_hash) {
+                // resize memento and payload to discard the recently read mementos and payloads which are not
+                // equal to the orig_prefix hash
+                mementos_.resize(old_list_length);
+                if (filter_.metadata_->payload_bits > 0) {
+                    payloads_.resize(old_list_length);
+                }
                 if (it_.is_at_runend())
                     break;
                 ++it_;
                 continue;
             }
         }
-
-        const uint32_t old_list_length = mementos_.size();
-        mementos_.resize(old_list_length + memento_count);
-        if (filter_.metadata_->payload_bits > 0) {
-            payloads_.resize(old_list_length + memento_count);
-            it_.get(it_hash, mementos_.data() + old_list_length, payloads_.data() + old_list_length);
-        } else {
-            it_.get(it_hash, mementos_.data() + old_list_length);
-        }
+        // keep track of the list size
+        old_list_length += num_consumed_elements;
         if (it_.is_at_runend())
             break;
         ++it_;
@@ -4452,8 +4487,8 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_end
 
 
 template <bool expandable>
-inline int32_t Memento<expandable>::hash_iterator::get(uint64_t& key, uint64_t *mementos,
-                                                       uint64_t *payloads) const {
+inline int32_t Memento<expandable>::hash_iterator::get(uint64_t& key, std::vector<uint64_t>* mementos,
+                                                       std::vector<uint64_t>* payloads) const {
 	if (*this == filter_.hash_end())
 		return -1;
 
@@ -4473,14 +4508,14 @@ inline int32_t Memento<expandable>::hash_iterator::get(uint64_t& key, uint64_t *
         m2 = filter_.get_memento(current_ + 1);
         if (m1 < m2) {
             if (mementos != nullptr) {
-                mementos[res] = m1;
+                mementos->push_back(m1);
                 if (filter_.get_payload_bits() > 0) {
-                    payloads[res] = p1;
+                  payloads->push_back(p1);
                 }
                 res += 1;
-                mementos[res] = m2;
+                mementos->push_back(m2);
                 if (filter_.get_payload_bits() > 0) {
-                    payloads[res] = p2;
+                    payloads->push_back(p2);
                 }
                 res += 1;
             } else {
@@ -4493,9 +4528,9 @@ inline int32_t Memento<expandable>::hash_iterator::get(uint64_t& key, uint64_t *
             const uint64_t max_memento_value = (1ULL << memento_bits) - 1;
 
             if (mementos != nullptr) {
-                mementos[res] = m2;
+                mementos->push_back(m2);
                 if (filter_.get_payload_bits() > 0) {
-                    payloads[res] = p2;
+                    payloads->push_back(p2);
                 }
             }
 
@@ -4546,17 +4581,17 @@ inline int32_t Memento<expandable>::hash_iterator::get(uint64_t& key, uint64_t *
                     filled_bits -= filter_.get_payload_bits();
                 }
                 if (mementos != nullptr) {
-                    mementos[res] = curr_memento;
+                    mementos->push_back(curr_memento);
                     if (filter_.get_payload_bits() > 0) {
-                        payloads[res] = curr_payload;
+                        payloads->push_back(curr_payload);
                     }
                 }
                 res++;
             }
             if (mementos != nullptr) {
-                mementos[res] = m1;
+                mementos->push_back(m1);
                 if (filter_.get_payload_bits() > 0) {
-                    payloads[res] = p1;
+                    payloads->push_back(p1);
                 }
             }
             res++;
@@ -4564,9 +4599,9 @@ inline int32_t Memento<expandable>::hash_iterator::get(uint64_t& key, uint64_t *
     }
     else {
         if (mementos != nullptr) {
-            mementos[res] = filter_.get_memento(current_);
+            mementos->push_back(filter_.get_memento(current_));
             if (filter_.get_payload_bits() > 0) {
-                payloads[res] = filter_.get_slot_payload(current_);
+                payloads->push_back(filter_.get_slot_payload(current_));
             }
         }
         res++;

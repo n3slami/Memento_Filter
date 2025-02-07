@@ -24,9 +24,16 @@ void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64
     std::multiset<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>> filter_hash_set;
 
     auto filter_it = filter.hash_begin();
-    uint64_t key, memento_count, mementos[1024], payloads[1024];
+    uint64_t key, memento_count;
+    std::vector<uint64_t> mementos;
+    std::vector<uint64_t> payloads;
+    mementos.reserve(1024);
+    payloads.reserve(1024);
     for (; filter_it != filter.hash_end(); filter_it++) {
-        memento_count = filter_it.get(key, mementos, payloads);
+        // reset the vectors
+        mementos.clear();
+        payloads.clear();
+        memento_count = filter_it.get(key, &mementos, &payloads);
         const uint64_t fingerprint = key >> filter.get_bucket_index_hash_size();
         const uint64_t bucket_index = key & BITMASK(filter.get_bucket_index_hash_size());
         for (int32_t i = 0; i < memento_count; i++)
@@ -52,9 +59,16 @@ void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64
     std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> filter_hash_set;
 
     auto filter_it = filter.hash_begin();
-    uint64_t key, memento_count, mementos[1024], payloads[1024];
+    uint64_t key, memento_count;
+    std::vector<uint64_t> mementos;
+    std::vector<uint64_t> payloads;
+    mementos.reserve(1024);
+    payloads.reserve(1024);
     for (; filter_it != filter.hash_end(); filter_it++) {
-        memento_count = filter_it.get(key, mementos, payloads);
+        // clear existing vectors
+        mementos.clear();
+        payloads.clear();
+        memento_count = filter_it.get(key, &mementos, &payloads);
         for (int32_t i = 0; i < memento_count; i++) {
             if (filter.get_payload_bits() > 0) {
                 filter_hash_set.insert({key, mementos[i], payloads[i]});
