@@ -892,7 +892,7 @@ TEST_SUITE("standard memento") {
         const float load_factor = 0.95;
         const uint32_t n_slots = n_elements / load_factor;
         const uint32_t key_bits = 32;
-        const uint32_t memento_bits = 40;
+        const uint32_t memento_bits = 30;
         Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
 
         SUBCASE("insert") {
