@@ -480,10 +480,10 @@ public:
      * as they lie outside of the main scope of Memento filter. However, they
      * should working pretty well already.
 	 */
-    static constexpr uint32_t flag_no_lock = 0x01;
-    static constexpr uint32_t flag_try_once_lock = 0x02;
-    static constexpr uint32_t flag_wait_for_lock = 0x04;
-    static constexpr uint32_t flag_key_is_hash = 0x08; // It is sometimes useful to insert a key that has already been hashed.
+    static constexpr uint8_t flag_no_lock = 0x01;
+    static constexpr uint8_t flag_try_once_lock = 0x02;
+    static constexpr uint8_t flag_wait_for_lock = 0x04;
+    static constexpr uint8_t flag_key_is_hash = 0x08; // It is sometimes useful to insert a key that has already been hashed.
 
     static constexpr uint32_t preallocate_size_for_prefix_mementos = 10;
 
