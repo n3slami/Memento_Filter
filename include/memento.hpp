@@ -3053,7 +3053,8 @@ inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t
 
     /* nslots can be any number now, as opposed to just being able to be a power of 2! */
     num_slots = nslots;
-    xnslots = nslots + 10 * sqrt((double) nslots);
+    // scale number of slots by the load factor
+    xnslots = nslots / 0.95;
     nblocks = (xnslots + slots_per_block_ - 1) / slots_per_block_;
     fingerprint_bits = key_bits;
     while (nslots > 1) {
