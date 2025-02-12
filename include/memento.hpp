@@ -2804,12 +2804,41 @@ inline int64_t Memento<expandable>::resize(uint64_t nslots) {
     for (auto it = hash_begin(); it != hash_end(); ++it) {
 		memento_count = it.get(key, mementos);
 
-        const uint64_t new_fingerprint_size = expandable ? highbit_position(key) - metadata_->key_bits + metadata_->fingerprint_bits - 1
-                                                         : new_memento.metadata_->fingerprint_bits;
-
-		int ret = new_memento.insert_mementos(key, mementos, memento_count, 
+        int ret;
+        if constexpr (expandable) {
+            const int64_t new_fingerprint_size = highbit_position(key) - metadata_->key_bits + metadata_->fingerprint_bits - 1;
+            if (new_fingerprint_size < 0) {
+                const uint32_t bucket_index_hash_size = new_memento.get_bucket_index_hash_size();
+                const uint64_t key_1 = (key & BITMASK(bucket_index_hash_size - 1)) | (1ULL << bucket_index_hash_size);
+                const uint64_t key_2 = key_1 | (1ULL << (bucket_index_hash_size - 1));
+                ret = new_memento.insert_mementos(key_1,
+                                                  mementos,
+                                                  memento_count,
+                                                  0,
+                                                  flag_no_lock | flag_key_is_hash);
+                ret = new_memento.insert_mementos(key_2,
+                                                  mementos,
+                                                  memento_count,
+                                                  0,
+                                                  flag_no_lock | flag_key_is_hash);
+            }
+            else {
+                ret = new_memento.insert_mementos(key,
+                                                  mementos,
+                                                  memento_count, 
+                                                  new_fingerprint_size,
+                                                  flag_no_lock | flag_key_is_hash);
+            }
+        }
+        else {
+            const int64_t new_fingerprint_size = new_memento.metadata_->fingerprint_bits;
+            ret = new_memento.insert_mementos(key,
+                                              mementos,
+                                              memento_count, 
                                               new_fingerprint_size,
                                               flag_no_lock | flag_key_is_hash);
+        }
+
 		if (ret < 0)
 			return ret;
 		ret_numkeys += memento_count;
