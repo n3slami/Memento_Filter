@@ -3626,12 +3626,37 @@ inline Memento<expandable>::iterator::iterator(const Memento& filter, const uint
         filter_{filter},
         l_key_{l_key},
         r_key_{r_key},
-        cur_prefix_{l_key >> filter.get_num_memento_bits()},
-        it_{filter.hash_begin(cur_prefix_, Memento<expandable>::flag_no_lock)},
+        cur_prefix_{(l_key >> filter.get_num_memento_bits()) - 1},
+        it_{filter},
         cur_ind_{0} {
     const uint64_t l_memento = l_key & BITMASK(filter.get_num_memento_bits());
     const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
     const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
+
+    uint64_t cur_prefix_hash, hash_bucket_index;
+    do {
+        cur_prefix_++;
+        if (filter.metadata_->hash_mode == hashmode::Default)
+            cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter.metadata_->seed);
+        else if (filter.metadata_->hash_mode == hashmode::Invertible)
+            cur_prefix_hash = hash_64(cur_prefix_hash, BITMASK(63));
+
+        const uint32_t bucket_index_hash_size = filter.get_bucket_index_hash_size();
+        const uint32_t orig_quotient_size = filter.metadata_->original_quotient_bits;
+        const uint64_t orig_nslots = filter.metadata_->nslots >> (filter.metadata_->key_bits
+                                                                - filter.metadata_->fingerprint_bits
+                                                                - filter.metadata_->original_quotient_bits);
+        const uint64_t fast_reduced_part = fast_reduce(((cur_prefix_hash & BITMASK(orig_quotient_size)) 
+                                                        << (32 - orig_quotient_size)), orig_nslots);
+        hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+                    | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    } while (cur_prefix_ <= r_prefix && !filter.is_occupied(hash_bucket_index));
+    if (cur_prefix_ > r_prefix) {
+        cur_prefix_ = std::numeric_limits<uint64_t>::max();
+        return;
+    }
+
+    it_ = filter.hash_begin(hash_bucket_index);
 
     fetch_matching_prefix_mementos();
     cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) - mementos_.begin();
