@@ -620,7 +620,7 @@ TEST_SUITE("expandable memento") {
 
     TEST_CASE("iterator") {
         const uint32_t n_elements = 100000;
-        const uint32_t expansions = 2;
+        const uint32_t expansions = 4;
         const uint32_t rng_seed = 2;
         const uint32_t geometric_modulo = 3;
         std::mt19937 rng(rng_seed);
@@ -659,7 +659,9 @@ TEST_SUITE("expandable memento") {
                 const uint64_t l_key = key_prefix << memento_bits;
                 const uint64_t r_key = l_key | BITMASK(memento_bits);
                 uint32_t check_ind = 0;
-                for (auto memento_it = memento.begin(l_key, r_key); memento_it != memento.end(); memento_it++) {
+                auto memento_it = memento.begin(l_key, r_key);
+                REQUIRE_NE(memento_it, memento.end());
+                for (; memento_it != memento.end(); memento_it++) {
                     const uint64_t key = (key_prefix << memento_bits) | it->second[check_ind++];
                     REQUIRE_EQ(*memento_it, key);
                 }

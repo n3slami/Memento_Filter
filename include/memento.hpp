@@ -3838,7 +3838,7 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
 	it.cur_length = 1;
 #endif
 
-	if (it.current_ >= metadata_->nslots)
+	if (it.current_ >= metadata_->xnslots)
 		it.current_ = 0XFFFFFFFFFFFFFFFF;
 	return it;
 }
