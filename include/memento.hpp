@@ -868,7 +868,7 @@ public:
         bool operator!=(const iterator& rhs) const;
 
     private:
-        void fetch_matching_prefix_mementos();
+        void fetch_matching_prefix_mementos(bool reinit_hash_it=true);
 
         const Memento& filter_;
         uint64_t l_key_;
@@ -3633,9 +3633,14 @@ inline Memento<expandable>::iterator::iterator(const Memento& filter, const uint
     const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
     const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
 
-    uint64_t cur_prefix_hash, hash_bucket_index;
+    uint64_t hash_bucket_index;
     do {
         cur_prefix_++;
+        if (cur_prefix_ > r_prefix) {
+            cur_prefix_ = std::numeric_limits<uint64_t>::max();
+            return;
+        }
+        uint64_t cur_prefix_hash;
         if (filter.metadata_->hash_mode == hashmode::Default)
             cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter.metadata_->seed);
         else if (filter.metadata_->hash_mode == hashmode::Invertible)
@@ -3650,15 +3655,11 @@ inline Memento<expandable>::iterator::iterator(const Memento& filter, const uint
                                                         << (32 - orig_quotient_size)), orig_nslots);
         hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                     | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-    } while (cur_prefix_ <= r_prefix && !filter.is_occupied(hash_bucket_index));
-    if (cur_prefix_ > r_prefix) {
-        cur_prefix_ = std::numeric_limits<uint64_t>::max();
-        return;
-    }
+    } while (!filter.is_occupied(hash_bucket_index));
 
     it_ = filter.hash_begin(hash_bucket_index);
 
-    fetch_matching_prefix_mementos();
+    fetch_matching_prefix_mementos(false);
     cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) - mementos_.begin();
     while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
         cur_prefix_++;
@@ -3685,8 +3686,9 @@ inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::op
 
 
 template <bool expandable>
-inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos() {
-    it_ = filter_.hash_begin(cur_prefix_, Memento::flag_no_lock);
+inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos(bool reinit_hash_it) {
+    if (reinit_hash_it)
+        it_ = filter_.hash_begin(cur_prefix_, Memento::flag_no_lock);
     uint64_t cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter_.get_hash_seed());
     const uint32_t bucket_index_hash_size = filter_.get_bucket_index_hash_size();
     const uint32_t orig_quotient_size = filter_.metadata_->original_quotient_bits;
