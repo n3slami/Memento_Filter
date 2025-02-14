@@ -174,7 +174,7 @@ TEST_SUITE("standard memento") {
                 const uint64_t elem_prefix_hash = Memento<false>::MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
                 const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(quotient_bits)) << (32 - quotient_bits),
                                                           n_slots);
-                const uint64_t fingerprint = (elem_prefix_hash >> memento.get_bucket_index_hash_size()) 
+                const uint64_t fingerprint = (elem_prefix_hash >> memento.get_bucket_index_hash_size())
                                                 & BITMASK(memento.get_num_fingerprint_bits());
                 check_set.insert({bucket_index, fingerprint, elem_memento, i});
             }
@@ -324,7 +324,7 @@ TEST_SUITE("standard memento") {
                     const uint64_t elem_prefix_hash = Memento<false>::MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
                     const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(quotient_bits)) << (32 - quotient_bits),
                                                               n_slots);
-                    const uint64_t fingerprint = (elem_prefix_hash >> memento.get_bucket_index_hash_size()) 
+                    const uint64_t fingerprint = (elem_prefix_hash >> memento.get_bucket_index_hash_size())
                                                     & BITMASK(memento.get_num_fingerprint_bits());
                     check_set.insert({bucket_index, fingerprint, elem_memento, 0});
                 }
@@ -1065,7 +1065,7 @@ TEST_SUITE("expandable memento") {
 
     TEST_CASE("iterator") {
         const uint32_t n_elements = 100000;
-        const uint32_t expansions = 2;
+        const uint32_t expansions = 4;
         const uint32_t rng_seed = 2;
         const uint32_t geometric_modulo = 3;
         std::mt19937 rng(rng_seed);
@@ -1104,7 +1104,9 @@ TEST_SUITE("expandable memento") {
                 const uint64_t l_key = key_prefix << memento_bits;
                 const uint64_t r_key = l_key | BITMASK(memento_bits);
                 uint32_t check_ind = 0;
-                for (auto memento_it = memento.begin(l_key, r_key, Memento<false>::flag_no_lock); memento_it != memento.end(); memento_it++) {
+                auto memento_it = memento.begin(l_key, r_key);
+                REQUIRE_NE(memento_it, memento.end());
+                for (; memento_it != memento.end(); memento_it++) {
                     const uint64_t key = (key_prefix << memento_bits) | it->second[check_ind++];
                     REQUIRE_EQ(*memento_it, key);
                 }
@@ -1277,6 +1279,55 @@ TEST_SUITE("expandable memento with payloads") {
             const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index)
                                             & BITMASK(hash_length)) | (1ULL << hash_length);
             check_set.insert({capped_hash, elem_memento, elem_memento});
+        }
+        assert_memento_contents(check_set, memento);
+    }
+
+    TEST_CASE("expansions with fingerprint duplication") {
+        const uint32_t n_elements = 1000000;
+        const uint32_t n_expansions = 5;
+        const uint32_t rng_seed = 2;
+        std::mt19937 rng(rng_seed);
+        std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> check_set;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = n_elements / ((1ULL << n_expansions) * load_factor) + 5000;
+        const uint32_t key_bits = 20;
+        const uint32_t memento_bits = 5;
+
+        Memento<true> memento{n_slots, key_bits, memento_bits, Memento<true>::hashmode::Default, seed};
+        const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+        const uint8_t flags = Memento<true>::flag_no_lock;
+        for (int32_t i = 0; i < n_elements; i++) {
+            const uint64_t elem = rng();
+            const uint64_t elem_prefix = elem >> memento_bits;
+            const uint64_t elem_memento = elem & BITMASK(memento_bits);
+            REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags), 0);
+
+            const uint64_t elem_prefix_hash = Memento<true>::MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+            const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                << (32 - memento.get_original_quotient_bits()),
+                                                        n_slots);
+            const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+            const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index)
+                                            & BITMASK(hash_length)) | (1ULL << hash_length);
+            check_set.insert({capped_hash, elem_memento, 0});
+        }
+
+        std::vector<std::tuple<uint64_t, uint64_t, uint64_t>> extend_list;
+        for (auto it : check_set)
+            if (highbit_position(std::get<0>(it)) == key_bits)
+                extend_list.push_back(it);
+        for (auto it : extend_list) {
+            check_set.erase(check_set.find(it));
+            std::tuple<uint64_t, uint64_t, uint64_t> a = it;
+            uint64_t a_first = std::get<0>(a);
+            a_first &= BITMASK(key_bits);
+            a_first |= 1ULL << (key_bits + 1);
+            check_set.insert({a_first, std::get<1>(a), std::get<2>(a)});
+            uint64_t b_first = a_first;
+            b_first |= 1ULL << key_bits;
+            check_set.insert({b_first, std::get<1>(a), std::get<2>(a)});
         }
         assert_memento_contents(check_set, memento);
     }
