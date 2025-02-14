@@ -1364,6 +1364,9 @@ inline bool Memento<expandable>::memento_lock(uint64_t hash_bucket_index, bool r
         while(left_to_lock > 0) {
             // if we overflow with the regions no need to lock
             if (region_to_lock < 0) {
+                // we should continue because there might be some we do need to lock
+                region_to_lock += 1;
+                left_to_lock--;
                 continue;
             }
             // try locking
@@ -1386,7 +1389,7 @@ inline bool Memento<expandable>::memento_lock(uint64_t hash_bucket_index, bool r
         while(left_to_lock > 0) {
             // if we overflow with the regions no need to lock
             if (region_to_lock >= runtimedata_->num_locks) {
-                continue;
+               break;
             }
             // try locking
             if (!spin_lock(
@@ -1420,9 +1423,9 @@ inline void Memento<expandable>::memento_unlock(uint64_t hash_bucket_index, bool
         region_to_unlock = (hash_bucket_index / num_slots_to_lock_ + num_regions_to_unlock) - 1;
     }
     while(left_to_unlock > 0) {
-        // if we overflow with the regions no need to unlock
+        // if we overflow with the regions no need to unlock we can simply stop
         if (region_to_unlock < 0 || (uint32_t)region_to_unlock >= runtimedata_->num_locks) {
-            continue;
+            break;
         }
         spin_unlock(&runtimedata_->locks[region_to_unlock]);
         region_to_unlock -= 1;
@@ -3414,8 +3417,12 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
             assertBucketLocation(hash_bucket_index, insert_index);
             res = add_memento_to_sorted_list(hash_bucket_index, insert_index, memento, payload);
 
-            if (res < 0)
-                return res;
+            if (res < 0) {
+              if (GET_NO_LOCK(flags) != flag_no_lock)
+                memento_unlock(hash_bucket_index, /* reverse */ false);
+              return res;
+            }
+
             res = insert_index - hash_bucket_index;
         }
         else {
