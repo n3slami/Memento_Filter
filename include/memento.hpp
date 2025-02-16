@@ -1045,7 +1045,7 @@ private:
 
     qfblock *get_block(uint64_t block_index) const {
         uint8_t *byte_ptr = reinterpret_cast<uint8_t *>(blocks_);
-        const uint32_t byte_offset = block_index 
+        const uint64_t byte_offset = block_index
                 * (sizeof(qfblock) - sizeof(qfblock::slots) + slots_per_block_ * metadata_->bits_per_slot / 8);
         return reinterpret_cast<qfblock *>(byte_ptr + byte_offset);
     }
@@ -1744,7 +1744,7 @@ inline void Memento<expandable>::shift_slots(int64_t first, uint64_t last, uint6
         i = x_bits_in_block / 8;
         j = y_bits_in_block / 8;
 
-        int32_t mn = (i < j ? i : j);
+        int64_t mn = (i < j ? i : j);
         if (7 < mn)
             mn = 7;
 
@@ -2077,7 +2077,7 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
         int32_t written_bits = memento_bits;
         if (list_len >= max_memento_value) {
             uint64_t fragments[5], frag_cnt = 0;
-            for (uint32_t cnt = list_len; cnt; cnt /= max_memento_value) {
+            for (uint64_t cnt = list_len; cnt; cnt /= max_memento_value) {
                 fragments[frag_cnt++] = cnt % max_memento_value;
             }
             for (uint32_t i = 0; i < frag_cnt - 1; i++) {
@@ -2154,7 +2154,7 @@ inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64
     }
 
     *old_slot_count = 2;
-    uint32_t old_memento_cnt = 2, old_unary_cnt = 0;
+    uint64_t old_memento_cnt = 2, old_unary_cnt = 0;
     uint64_t data = 0;
     uint64_t filled_bits = 0;
     uint64_t data_bit_pos = ((pos + 2) % slots_per_block_) * metadata_->bits_per_slot;
@@ -2191,7 +2191,8 @@ inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64
 
     uint64_t res_mementos[old_memento_cnt], res_cnt = 0;
     uint64_t res_payloads[old_memento_cnt];
-    uint32_t cmp_ind = 0, val = (m1 < m2 ? m1 : m2);
+    uint32_t cmp_ind = 0;
+    uint64_t val = (m1 < m2 ? m1 : m2);
     uint64_t curr_payload = 0;
     int32_t newly_handled_cnt = 0;
     // Handle the minimum
@@ -2892,7 +2893,7 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
         if (memento_count - 2 >= max_memento_value) {
             // Must take into account the extra length of the memento counter.
             // This will rarely execute
-            uint32_t val = max_memento_value - 1;
+            uint64_t val = max_memento_value - 1;
             for (uint32_t tmp_cnt = val; tmp_cnt < memento_count - 2; tmp_cnt += val) {
                 val *= max_memento_value;
                 memento_unary_count++;
@@ -3132,7 +3133,7 @@ inline Memento<expandable>::~Memento() {
 
 template <bool expandable>
 inline Memento<expandable>::Memento(const Memento<expandable>& other) {
-	const uint32_t total_num_bytes = sizeof(qfmetadata) + other.size_in_bytes();
+	const uint64_t total_num_bytes = sizeof(qfmetadata) + other.size_in_bytes();
     uint8_t *buffer = new uint8_t[total_num_bytes];
     memcpy(buffer, other.metadata_, total_num_bytes);
     metadata_ = reinterpret_cast<qfmetadata *>(buffer);
@@ -3172,7 +3173,7 @@ inline Memento<expandable>& Memento<expandable>::operator=(const Memento<expanda
 #endif
     delete[] metadata_;
 
-	const uint32_t total_num_bytes = sizeof(qfmetadata) + other.size_in_bytes();
+	const uint64_t total_num_bytes = sizeof(qfmetadata) + other.size_in_bytes();
     uint8_t *buffer = new uint8_t[total_num_bytes];
     memcpy(buffer, other.metadata_, total_num_bytes);
     metadata_ = reinterpret_cast<qfmetadata *>(buffer);
@@ -3559,7 +3560,7 @@ inline void Memento<expandable>::bulk_load(uint64_t *sorted_hashes, uint64_t n, 
                 METADATA_WORD(occupieds, current_run) |= (1ULL << ((current_run % slots_per_block_) % 64));
                 METADATA_WORD(runends, (current_pos - 1)) |= (1ULL << (((current_pos - 1) % slots_per_block_) % 64));
                 for (uint64_t block_ind = current_run / slots_per_block_ + 1; block_ind <= (current_pos - 1) / slots_per_block_; block_ind++) {
-                    const uint32_t cnt = current_pos - std::max(old_pos, block_ind * slots_per_block_);
+                    const uint64_t cnt = current_pos - std::max(old_pos, block_ind * slots_per_block_);
                     if (get_block(block_ind)->offset + cnt < BITMASK(8 * sizeof(blocks_[0].offset)))
                         get_block(block_ind)->offset += cnt;
                     else
@@ -3579,7 +3580,7 @@ inline void Memento<expandable>::bulk_load(uint64_t *sorted_hashes, uint64_t n, 
     METADATA_WORD(occupieds, current_run) |= (1ULL << ((current_run % slots_per_block_) % 64));
     METADATA_WORD(runends, (current_pos - 1)) |= (1ULL << (((current_pos - 1) % slots_per_block_) % 64));
     for (uint64_t block_ind = current_run / slots_per_block_ + 1; block_ind <= (current_pos - 1) / slots_per_block_; block_ind++) {
-        const uint32_t cnt = current_pos - std::max(old_pos, block_ind * slots_per_block_);
+        const uint64_t cnt = current_pos - std::max(old_pos, block_ind * slots_per_block_);
         if (get_block(block_ind)->offset + cnt < BITMASK(8 * sizeof(blocks_[0].offset)))
             get_block(block_ind)->offset += cnt;
         else

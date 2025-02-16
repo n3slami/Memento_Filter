@@ -9,6 +9,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <ostream>
 #include <random>
 #include <set>
 #include <tuple>
@@ -53,6 +54,40 @@ void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64
     REQUIRE_EQ(hash_it, hash_set.end());
 }
 
+    void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>>& hash_set,
+                                 Memento<false>& filter) {
+        std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> filter_hash_set;
+
+        auto filter_it = filter.hash_begin();
+        uint64_t key, memento_count;
+        std::vector<uint64_t> mementos;
+        std::vector<uint64_t> payloads;
+        mementos.reserve(1024);
+        payloads.reserve(1024);
+        for (; filter_it != filter.hash_end(); filter_it++) {
+            // clear existing vectors
+            mementos.clear();
+            payloads.clear();
+            memento_count = filter_it.get(key, &mementos, &payloads);
+            for (int32_t i = 0; i < memento_count; i++) {
+                if (filter.get_payload_bits() > 0) {
+                    filter_hash_set.insert({(1ULL << filter.get_num_key_bits()), mementos[i], payloads[i]});
+                } else {
+                    filter_hash_set.insert({(1ULL << filter.get_num_key_bits()), mementos[i], 0});
+                }
+            }
+        }
+        REQUIRE_EQ(filter_it, filter.hash_end());
+
+        REQUIRE_EQ(hash_set.size(), filter_hash_set.size());
+        auto hash_it = hash_set.begin();
+        for (auto it = filter_hash_set.begin(); it != filter_hash_set.end(); ++it) {
+            REQUIRE_EQ(*hash_it, *it);
+            ++hash_it;
+        }
+        REQUIRE_EQ(hash_it, hash_set.end());
+    }
+
 
 void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>>& hash_set,
                              Memento<true>& filter) {
@@ -90,7 +125,7 @@ void assert_memento_contents(std::multiset<std::tuple<uint64_t, uint64_t, uint64
 
 
 TEST_SUITE("standard memento") {
-    const uint32_t seed = 1;
+    const uint32_t seed = 12345;
 
     TEST_CASE("allocation") {
         const uint32_t n_slots = 1000;
@@ -962,6 +997,79 @@ TEST_SUITE("standard memento") {
                 }
                 REQUIRE_EQ(it, memento.end());
             }
+        }
+    }
+
+    TEST_CASE("resizing") {
+        const uint32_t n_elements = (1ULL << 12) * 0.95;
+        const uint32_t rng_seed = 2;
+        std::mt19937_64 rng(rng_seed);
+        std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> check_set;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = 1ULL << 12;
+        const uint32_t key_bits = 26;
+        const uint32_t memento_bits = 32;
+
+        Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed};
+        memento.set_auto_resize(true);
+        const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+        const uint8_t flags = Memento<false>::flag_no_lock;
+        const uint32_t n_expansions = memento.get_num_fingerprint_bits();
+        for (int32_t expansion = 0; expansion < n_expansions; expansion++) {
+            for (int32_t i = 0; i < (n_elements << expansion); i++) {
+                const uint64_t elem = rng();
+                const uint64_t elem_prefix = elem >> memento_bits;
+                const uint64_t elem_memento = elem & BITMASK(memento_bits);
+                REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags), 0);
+
+                const uint64_t elem_prefix_hash = Memento<false>::MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                    << (32 - memento.get_original_quotient_bits()),
+                                                            n_slots);
+                const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+                const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index)
+                                                & BITMASK(hash_length)) | (1ULL << hash_length);
+                check_set.insert({capped_hash, elem_memento, 0});
+            }
+            //assert_memento_contents(check_set, memento);
+        }
+    }
+
+        TEST_CASE("resizing with payload") {
+        const uint32_t n_elements = (1ULL << 12) * 0.95;
+        const uint32_t rng_seed = 2;
+        std::mt19937_64 rng(rng_seed);
+        std::multiset<std::tuple<uint64_t, uint64_t, uint64_t>> check_set;
+        const uint32_t payload_bits = 50;
+
+        const float load_factor = 0.95;
+        const uint32_t n_slots = 1ULL << 12;
+        const uint32_t key_bits = 26;
+        const uint32_t memento_bits = 32;
+
+        Memento<false> memento{n_slots, key_bits, memento_bits, Memento<false>::hashmode::Default, seed, 0, payload_bits};
+        memento.set_auto_resize(true);
+        const uint32_t quotient_bits = memento.get_bucket_index_hash_size();
+        const uint8_t flags = Memento<false>::flag_no_lock;
+        const uint32_t n_expansions = memento.get_num_fingerprint_bits();
+        for (int32_t expansion = 0; expansion < n_expansions; expansion++) {
+            for (int32_t i = 0; i < (n_elements << expansion); i++) {
+                const uint64_t elem = rng();
+                const uint64_t elem_prefix = elem >> memento_bits;
+                const uint64_t elem_memento = elem & BITMASK(memento_bits);
+                REQUIRE_GE(memento.insert(elem_prefix, elem_memento, flags, elem_memento), 0);
+
+                const uint64_t elem_prefix_hash = Memento<false>::MurmurHash64A(&elem_prefix, sizeof(elem_prefix), seed);
+                const uint64_t bucket_index = fast_reduce((elem_prefix_hash & BITMASK(memento.get_original_quotient_bits()))
+                                                                    << (32 - memento.get_original_quotient_bits()),
+                                                            n_slots);
+                const uint32_t hash_length = memento.get_bucket_index_hash_size() + memento.get_num_fingerprint_bits();
+                const uint64_t capped_hash = (((elem_prefix_hash & ~BITMASK(memento.get_original_quotient_bits())) | bucket_index)
+                                                & BITMASK(hash_length)) | (1ULL << hash_length);
+                check_set.insert({capped_hash, elem_memento, elem_memento});
+            }
+            //assert_memento_contents(check_set, memento);
         }
     }
 }
