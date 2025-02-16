@@ -977,7 +977,7 @@ private:
 
     qfblock *get_block(uint64_t block_index) const {
         uint8_t *byte_ptr = reinterpret_cast<uint8_t *>(blocks_);
-        const uint32_t byte_offset = block_index 
+        const uint64_t byte_offset = block_index 
                 * (sizeof(qfblock) - sizeof(qfblock::slots) + slots_per_block_ * metadata_->bits_per_slot / 8);
         return reinterpret_cast<qfblock *>(byte_ptr + byte_offset);
     }
