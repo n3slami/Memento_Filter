@@ -2645,7 +2645,9 @@ inline int32_t Memento<expandable>::add_memento_to_sorted_list(const uint64_t bu
     if (extra_slots) {
         // Find empty slots and shift everything to fit the new mementos
         ind++;
-        make_n_empty_slots_for_memento_list(bucket_index, ind, extra_slots);
+        int32_t res = make_n_empty_slots_for_memento_list(bucket_index, ind, extra_slots);
+        if (res < 0)
+            return res;
     }
 
     // Update the actual list 
@@ -4349,10 +4351,25 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos(bool r
       filter_.memento_unlock(hash_bucket_index, /* reverse */ false);
     }
     if (filter_.metadata_->payload_bits == 0) {
-        // this is done only when there are no payloads because we don't
-        // support multiple keepsake boxes with the same fingerprint
-        // so the assumption is that the mementos are already sorted
         std::sort(mementos_.begin(), mementos_.end());
+    } else {
+      // when expanding we can have a collision on the fingerprint which can result in reading an incorrect keepsake box
+      // because of that we have to sort the mementos and the payloads together
+      // we first sort the mementos and then use the indexes to sort the payloads accordingly
+      std::vector<uint64_t> indexes(mementos_.size());
+      std::iota(indexes.begin(), indexes.end(), 0);
+      // sort by ascending order
+      std::sort(indexes.begin(), indexes.end(), [this](uint64_t i1, uint64_t i2) {
+        return mementos_[i1] < mementos_[i2];
+      });
+      std::vector<uint64_t> sorted_mementos(mementos_.size());
+      std::vector<uint64_t> sorted_payloads(mementos_.size());
+      for (uint64_t i = 0; i < mementos_.size(); i++) {
+        sorted_mementos[i] = mementos_[indexes[i]];
+        sorted_payloads[i] = payloads_[indexes[i]];
+      }
+      mementos_ = sorted_mementos;
+      payloads_ = sorted_payloads;
     }
 }
 
