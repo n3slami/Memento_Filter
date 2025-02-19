@@ -689,6 +689,23 @@ public:
 	int64_t insert(uint64_t key, uint64_t memento, uint8_t flags);
 
     /**
+     * Update a key's memento. This is achieved by updating a memento with the
+     * longest fingerprint that matches that of `key`. 
+     *
+     * @param key - The input key's prefix.
+     * @param old_memento - The input key's old memento.
+     * @param new_memento - The input key's new memento.
+     * @param flags - Flags determining the filter's behavior under
+     * concurrency, as well as if the prefix is already hashed or not. If
+     * `flag_wait_for_lock` is set to 1, the thread spins. Otherwise, it tries to
+     * acquire the lock once.
+     * @returns = 0 if successful. May also return `err_doesnt_exist` if a
+     * matching fingerprint does not exist, and `err_couldnt_lock` if
+     * `flag_try_once_lock` failed to acquire the lock.
+     */
+	int64_t update_single(uint64_t key, uint64_t old_memento, uint64_t new_memento, uint8_t flags);
+
+    /**
      * Bulk load a set of keys into the filter. The list `sorted_hashes` must 
      * be a list of key hashes sorted in increasing order of (1) their slot
      * addresses, (2) fingerprints, and (3) mementos. That is, the highest
@@ -1154,6 +1171,23 @@ private:
     int32_t remove_mementos_from_prefix_set(const uint64_t pos, const uint64_t *mementos,
                                             bool *handled, const uint32_t memento_cnt,
                                             int32_t *new_slot_count, int32_t *old_slot_count);
+
+
+    /** 
+     * Updates a memento equal to `old_memento` in the keepsake box stored at
+     * `pos` to `new_memento`. This is included to simplify the prioritized
+     * update of a memento from multiple different keepsake boxes, with the
+     * ones with longer fingerprints having higher priority.
+     *
+     * @param pos - The position of the keepsake box, i.e., the slot where it's
+     * fingerprint is stored in.
+     * @param old_memento - The old memento to be removed.
+     * @param new_memento - The new memento to be added.
+     * @returns True if a memento equal to `old_memento` was found and updated
+     * to `new_memento` and false otherwise.
+     */
+    bool update_memento_in_prefix_set(const uint64_t bucket_index, const uint64_t pos,
+                                      const uint64_t old_memento, const uint64_t new_memento);
 
 
     /** 
@@ -2069,6 +2103,105 @@ inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64
     }
 
     return newly_handled_cnt;
+}
+
+
+template <bool expandable>
+inline bool Memento<expandable>::update_memento_in_prefix_set(const uint64_t bucket_index,
+                                                              const uint64_t pos,
+                                                              const uint64_t old_memento,
+                                                              const uint64_t new_memento) {
+    const uint64_t f1 = get_fingerprint(pos);
+    const uint64_t m1 = get_memento(pos);
+    const uint64_t f2 = get_fingerprint(pos + 1);
+    const uint64_t m2 = get_memento(pos + 1);
+    const uint64_t memento_bits = metadata_->memento_bits;
+    const uint64_t max_memento_value = BITMASK(memento_bits);
+
+    if (f1 <= f2 || is_runend(pos)) {
+        if (m1 == old_memento) {
+            set_slot(pos, (f1 << memento_bits) | new_memento);
+            return true;
+        }
+        return false;
+    }
+
+    uint64_t memento_cnt = 2, unary_cnt = 0;
+    uint64_t data = 0;
+    uint64_t filled_bits = 0;
+    uint64_t data_bit_pos = ((pos + 2) % slots_per_block_) * metadata_->bits_per_slot;
+    uint64_t data_block_ind = (pos + 2) / slots_per_block_;
+    GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
+                                data_bit_pos, data_block_ind);
+    if (m1 >= m2) {
+        memento_cnt += data & max_memento_value;
+        data >>= memento_bits;
+        filled_bits -= memento_bits;
+        if (memento_cnt == max_memento_value + 2) {
+            uint64_t length = 2, pw = 1;
+            memento_cnt = 2;
+            unary_cnt = 1;
+            while (length) {
+                GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
+                                            data_bit_pos, data_block_ind);
+                const uint64_t current_fragment = data & max_memento_value;
+                if (current_fragment == max_memento_value) {
+                    length++;
+                    unary_cnt++;
+                }
+                else {
+                    length--;
+                    memento_cnt += pw * current_fragment;
+                    pw *= max_memento_value;
+                }
+                data >>= memento_bits;
+                filled_bits -= memento_bits;
+            }
+        }
+    }
+
+    // Read the old memento list
+    uint64_t res_mementos[memento_cnt], res_cnt = 0;
+    res_mementos[res_cnt++] = (m1 < m2 ? m1 : m2);
+    for (uint32_t i = 1; i < memento_cnt - 1; i++) {
+        GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
+                                    data_bit_pos, data_block_ind);
+        res_mementos[res_cnt++] = data & max_memento_value;
+        data >>= memento_bits;
+        filled_bits -= memento_bits;
+    }
+    res_mementos[res_cnt++] = (m1 < m2 ? m2 : m1);
+
+    if (memento_cnt == 2 && res_mementos[0] == res_mementos[1]) {   // Have to delete a slot from the run
+        if (old_memento != res_mementos[0])
+            return false;
+        remove_slots_and_shift_remainders_and_runends_and_offsets(false,
+                                                                  bucket_index,
+                                                                  pos + 2,
+                                                                  1);
+        set_slot(pos, (f1 << memento_bits) | std::min(old_memento, new_memento));
+        set_slot(pos + 1, std::max(old_memento, new_memento));
+        return true;
+    }
+
+    uint32_t search_ind = std::lower_bound(res_mementos, res_mementos + res_cnt, old_memento) - res_mementos;
+    if (search_ind == res_cnt || res_mementos[search_ind] != old_memento)
+        return false;
+    res_mementos[search_ind] = new_memento;
+    if (old_memento < new_memento) {
+        for (uint32_t i = search_ind + 1; i < res_cnt && res_mementos[i] < res_mementos[i - 1]; i++)
+            std::swap(res_mementos[i], res_mementos[i - 1]);
+    }
+    else {
+        for (uint32_t i = search_ind; i > 0 && res_mementos[i] < res_mementos[i - 1]; i--)
+            std::swap(res_mementos[i], res_mementos[i - 1]);
+    }
+
+    if (memento_cnt == 2 && res_mementos[0] == res_mementos[1])
+        make_empty_slot_for_memento_list(bucket_index, pos + 2);
+    write_prefix_set(pos, f1, res_mementos, memento_cnt);
+
+    return true;
 }
 
 template <bool expandable>
@@ -3141,108 +3274,120 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
     }
 
     bool handled = false;
-    if constexpr (expandable) {
-        const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
-        int64_t fingerprint_pos = runstart_index;
-        uint64_t matching_position[10], match_amount[10], ind = 0;
-        uint8_t matching_cnt[metadata_->fingerprint_bits + 1];
-        memset(matching_cnt, 0, metadata_->fingerprint_bits + 1);
-        while (true) {
-            fingerprint_pos = next_matching_fingerprint_in_run(fingerprint_pos, hash_fingerprint);
-            if (fingerprint_pos < 0) {
-                // Matching fingerprints exhausted
-                break;
-            }
-            matching_position[ind] = fingerprint_pos;
-            const uint64_t current_fingerprint = get_fingerprint(fingerprint_pos);
-            const uint64_t next_fingerprint = get_fingerprint(fingerprint_pos + 1);
-            match_amount[ind++] = highbit_position(current_fingerprint);
-            matching_cnt[match_amount[ind - 1]]++;
-            if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
-                const uint64_t m1 = get_memento(fingerprint_pos);
-                const uint64_t m2 = get_memento(fingerprint_pos + 1);
-                fingerprint_pos += 2;
-                if (m1 >= m2)
-                    fingerprint_pos += number_of_slots_used_for_memento_list(fingerprint_pos);
-            }
-            else {
-                fingerprint_pos++;
-            }
+    const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
+    int64_t fingerprint_pos = runstart_index;
+    uint64_t matching_positions[50], ind = 0;
+    while (true) {
+        fingerprint_pos = next_matching_fingerprint_in_run(fingerprint_pos, hash_fingerprint);
+        if (fingerprint_pos < 0) {
+            // Matching fingerprints exhausted
+            break;
+        }
+        matching_positions[ind++] = fingerprint_pos;
+        const uint64_t current_fingerprint = get_fingerprint(fingerprint_pos);
+        const uint64_t next_fingerprint = get_fingerprint(fingerprint_pos + 1);
+        if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
+            const uint64_t m1 = get_memento(fingerprint_pos);
+            const uint64_t m2 = get_memento(fingerprint_pos + 1);
+            fingerprint_pos += 2;
+            if (m1 >= m2)
+                fingerprint_pos += number_of_slots_used_for_memento_list(fingerprint_pos);
+        }
+        else {
+            fingerprint_pos++;
+        }
 
-            if (is_runend(fingerprint_pos - 1))
-                break;
-        }
-        for (uint32_t i = 1; i <= metadata_->fingerprint_bits; i++)
-            matching_cnt[i] += matching_cnt[i - 1];
-
-        uint64_t sorted_positions[50];
-        for (uint32_t i = 0; i < ind; i++) {
-            sorted_positions[--matching_cnt[match_amount[i]]] = matching_position[i];
-        }
-        for (int32_t i = ind - 1; i >= 0; i--) {
-            int32_t old_slot_count, new_slot_count;
-            remove_mementos_from_prefix_set(sorted_positions[i], &memento, &handled,
-                                            1, &new_slot_count, &old_slot_count);
-            if (handled) {
-                if (new_slot_count < old_slot_count) {
-                    const bool only_item_in_run = is_runend(runstart_index);
-                    remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
-                                                                              hash_bucket_index,
-                                                                              sorted_positions[i] + new_slot_count,
-                                                                              old_slot_count - new_slot_count);
-                }
-                break;
-            }
-        }
+        if (is_runend(fingerprint_pos - 1))
+            break;
     }
-    else {
-        const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
-        int64_t fingerprint_pos = runstart_index;
-        uint64_t sorted_positions[50], ind = 0;
-        while (true) {
-            fingerprint_pos = next_matching_fingerprint_in_run(fingerprint_pos, hash_fingerprint);
-            if (fingerprint_pos < 0) {
-                // Matching fingerprints exhausted
-                break;
-            }
-            sorted_positions[ind++] = fingerprint_pos;
-            const uint64_t current_fingerprint = get_fingerprint(fingerprint_pos);
-            const uint64_t next_fingerprint = get_fingerprint(fingerprint_pos + 1);
-            if (!is_runend(fingerprint_pos) && 
-                    current_fingerprint > next_fingerprint) {
-                const uint64_t m1 = get_memento(fingerprint_pos);
-                const uint64_t m2 = get_memento(fingerprint_pos + 1);
-                fingerprint_pos += 2;
-                if (m1 >= m2)
-                    fingerprint_pos += number_of_slots_used_for_memento_list(fingerprint_pos);
-            }
-            else {
-                fingerprint_pos++;
-            }
 
-            if (is_runend(fingerprint_pos - 1))
-                break;
-        }
-
-        for (int32_t i = ind - 1; i >= 0; i--) {
-            int32_t old_slot_count, new_slot_count;
-            remove_mementos_from_prefix_set(sorted_positions[i], &memento, &handled,
-                                            1, &new_slot_count, &old_slot_count);
-            if (handled) {
-                if (new_slot_count < old_slot_count) {
-                    const bool only_item_in_run = is_runend(runstart_index);
-                    remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
-                                                                              hash_bucket_index,
-                                                                              sorted_positions[i] + new_slot_count,
-                                                                              old_slot_count - new_slot_count);
-                }
-                break;
+    for (int32_t i = ind - 1; i >= 0; i--) {
+        int32_t old_slot_count, new_slot_count;
+        remove_mementos_from_prefix_set(matching_positions[i], &memento, &handled,
+                                        1, &new_slot_count, &old_slot_count);
+        if (handled) {
+            if (new_slot_count < old_slot_count) {
+                const bool only_item_in_run = is_runend(runstart_index);
+                remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
+                                                                          hash_bucket_index,
+                                                                          matching_positions[i] + new_slot_count,
+                                                                          old_slot_count - new_slot_count);
             }
+            break;
         }
     }
 
     if (handled)
         modify_metadata(&metadata_->nelts, -1);
+
+    if (GET_NO_LOCK(flags) != flag_no_lock) {
+        memento_unlock(hash_bucket_index, /*small*/ true);
+    }
+
+    return handled ? 0 : err_doesnt_exist;
+}
+
+
+template <bool expandable>
+inline int64_t Memento<expandable>::update_single(uint64_t key, uint64_t old_memento, uint64_t new_memento, uint8_t flags) {
+    assert(old_memento != new_memento);
+    if (GET_KEY_HASH(flags) != flag_key_is_hash) {
+        if (metadata_->hash_mode == hashmode::Default)
+            key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+        else if (metadata_->hash_mode == hashmode::Invertible) // Large hash!
+            key = hash_64(key, BITMASK(63));
+    }
+    const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
+    const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
+    const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
+                                 - metadata_->fingerprint_bits
+                                 - metadata_->original_quotient_bits);
+    const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size)) 
+                                                    << (32 - orig_quotient_size)), orig_nslots);
+    key &= ~(BITMASK(metadata_->original_quotient_bits));
+    key |= fast_reduced_part;
+    uint64_t hash = key;
+    const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+                                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits) 
+                                    | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
+
+    if (GET_NO_LOCK(flags) != flag_no_lock) {
+        if (!memento_lock(hash_bucket_index, /*small*/ true, flags))
+            return err_couldnt_lock;
+    }
+
+    bool handled = false;
+    const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
+    int64_t fingerprint_pos = runstart_index;
+    uint64_t matching_positions[50], ind = 0;
+    while (true) {
+        fingerprint_pos = next_matching_fingerprint_in_run(fingerprint_pos, hash_fingerprint);
+        if (fingerprint_pos < 0) {
+            // Matching fingerprints exhausted
+            break;
+        }
+        matching_positions[ind++] = fingerprint_pos;
+        const uint64_t current_fingerprint = get_fingerprint(fingerprint_pos);
+        const uint64_t next_fingerprint = get_fingerprint(fingerprint_pos + 1);
+        if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
+            const uint64_t m1 = get_memento(fingerprint_pos);
+            const uint64_t m2 = get_memento(fingerprint_pos + 1);
+            fingerprint_pos += 2;
+            if (m1 >= m2)
+                fingerprint_pos += number_of_slots_used_for_memento_list(fingerprint_pos);
+        }
+        else {
+            fingerprint_pos++;
+        }
+
+        if (is_runend(fingerprint_pos - 1))
+            break;
+    }
+
+    for (int32_t i = ind - 1; !handled && i >= 0; i--)
+        handled = update_memento_in_prefix_set(hash_bucket_index, matching_positions[i],
+                                                          old_memento, new_memento);
 
     if (GET_NO_LOCK(flags) != flag_no_lock) {
         memento_unlock(hash_bucket_index, /*small*/ true);
