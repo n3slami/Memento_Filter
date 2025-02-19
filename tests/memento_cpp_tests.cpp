@@ -976,23 +976,22 @@ TEST_SUITE("standard memento") {
             mementos.push_back(i);
         memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock, mementos.data());
 
-        // commented out since we don't support multiple keepsake boxes with the same fingerprint (we avoid sorting mementos and payloads together)
-//        SUBCASE("two partitions") {
-//            const uint64_t check_keys[43] = {3201, 3202, 3203, 3204, 3205,
-//                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230, 3232,
-//                3234, 3236, 3238, 3240, 3242, 3242, 3243, 3244, 3244, 3245,
-//                3246, 3246, 3247, 3248, 3248, 3249, 3250, 3250, 3251, 3252,
-//                3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260};
-//            const uint64_t l = (100ULL << memento_bits) | 0ULL;
-//            const uint64_t r = (101ULL << memento_bits) | BITMASK(memento_bits);
-//            auto it = memento.begin(l, r);
-//            for (int32_t i = 0; i < 43; i++) {
-//                REQUIRE_NE(it, memento.end());
-//                REQUIRE_EQ(*it, check_keys[i]);
-//                ++it;
-//            }
-//            REQUIRE_EQ(it, memento.end());
-//        }
+        SUBCASE("two partitions") {
+            const uint64_t check_keys[43] = {3201, 3202, 3203, 3204, 3205,
+                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230, 3232,
+                3234, 3236, 3238, 3240, 3242, 3242, 3243, 3244, 3244, 3245,
+                3246, 3246, 3247, 3248, 3248, 3249, 3250, 3250, 3251, 3252,
+                3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260};
+            const uint64_t l = (100ULL << memento_bits) | 0ULL;
+            const uint64_t r = (101ULL << memento_bits) | BITMASK(memento_bits);
+            auto it = memento.begin(l, r);
+            for (int32_t i = 0; i < 43; i++) {
+                REQUIRE_NE(it, memento.end());
+                REQUIRE_EQ(*it, check_keys[i]);
+                ++it;
+            }
+            REQUIRE_EQ(it, memento.end());
+        }
 
         key_prefix = 103;
         mementos.clear();
@@ -1000,24 +999,23 @@ TEST_SUITE("standard memento") {
             mementos.push_back(i);
         memento.insert_mementos(key_prefix, mementos.data(), mementos.size(), Memento<false>::flag_no_lock, mementos.data());
 
-        // commented out since we don't support multiple keepsake boxes with the same fingerprint (we avoid sorting mementos and payloads together)
-//        SUBCASE("five partitions with two gaps") {
-//            const uint64_t check_keys[54] = {3201, 3202, 3203, 3204, 3205,
-//                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230, 3232,
-//                3234, 3236, 3238, 3240, 3242, 3242, 3243, 3244, 3244, 3245,
-//                3246, 3246, 3247, 3248, 3248, 3249, 3250, 3250, 3251, 3252,
-//                3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260, 3297, 3300,
-//                3303, 3306, 3309, 3312, 3315, 3318, 3321, 3324, 3327};
-//            const uint64_t l = (100ULL << memento_bits) | 0ULL;
-//            const uint64_t r = (103ULL << memento_bits) | BITMASK(memento_bits);
-//            auto it = memento.begin(l, r);
-//            for (int32_t i = 0; i < 54; i++) {
-//                REQUIRE_NE(it, memento.end());
-//                REQUIRE_EQ(*it, check_keys[i]);
-//                ++it;
-//            }
-//            REQUIRE_EQ(it, memento.end());
-//        }
+        SUBCASE("five partitions with two gaps") {
+            const uint64_t check_keys[54] = {3201, 3202, 3203, 3204, 3205,
+                3206, 3207, 3220, 3225, 3226, 3227, 3228, 3229, 3230, 3232,
+                3234, 3236, 3238, 3240, 3242, 3242, 3243, 3244, 3244, 3245,
+                3246, 3246, 3247, 3248, 3248, 3249, 3250, 3250, 3251, 3252,
+                3252, 3253, 3254, 3254, 3255, 3256, 3258, 3260, 3297, 3300,
+                3303, 3306, 3309, 3312, 3315, 3318, 3321, 3324, 3327};
+            const uint64_t l = (100ULL << memento_bits) | 0ULL;
+            const uint64_t r = (103ULL << memento_bits) | BITMASK(memento_bits);
+            auto it = memento.begin(l, r);
+            for (int32_t i = 0; i < 54; i++) {
+                REQUIRE_NE(it, memento.end());
+                REQUIRE_EQ(*it, check_keys[i]);
+                ++it;
+            }
+            REQUIRE_EQ(it, memento.end());
+        }
 
         SUBCASE("insert") {
             key_prefix = 200;
