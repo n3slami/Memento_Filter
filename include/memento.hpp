@@ -3885,7 +3885,7 @@ inline int64_t Memento<expandable>::update_single(uint64_t key, uint64_t old_mem
     uint64_t hash = key;
     const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                                         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
-    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits)
+    const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
                                     | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
 
     if (GET_NO_LOCK(flags) != flag_no_lock) {
