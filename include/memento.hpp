@@ -3793,7 +3793,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
     const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
                                  - metadata_->fingerprint_bits
                                  - metadata_->original_quotient_bits);
-    const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size)) 
+    const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size))
                                                     << (32 - orig_quotient_size)), orig_nslots);
     key &= ~(BITMASK(metadata_->original_quotient_bits));
     key |= fast_reduced_part;
@@ -3836,7 +3836,9 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
             break;
     }
     // assert the bucket for the last matching position
-    assertBucketLocation(hash_bucket_index, matching_positions[ind -1]);
+    if (ind > 0) {
+      assertBucketLocation(hash_bucket_index, matching_positions[ind - 1]);
+    }
     for (int32_t i = ind - 1; i >= 0; i--) {
         int32_t old_slot_count, new_slot_count;
         remove_mementos_from_prefix_set(matching_positions[i], &memento, &handled,
@@ -3920,7 +3922,10 @@ inline int64_t Memento<expandable>::update_single(uint64_t key, uint64_t old_mem
         if (is_runend(fingerprint_pos - 1))
             break;
     }
-
+    // assert the bucket for the last matching position
+    if (ind > 0) {
+      assertBucketLocation(hash_bucket_index, matching_positions[ind - 1]);
+    }
     for (int32_t i = ind - 1; !handled && i >= 0; i--)
         handled = update_memento_in_prefix_set(hash_bucket_index, matching_positions[i],
                                                           old_memento, new_memento, payload);
