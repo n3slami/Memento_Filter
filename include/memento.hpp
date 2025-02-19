@@ -4375,19 +4375,19 @@ inline Memento<expandable>::iterator::iterator(Memento<expandable> &filter,
       l_key_{(l_prefix << filter.get_num_memento_bits()) | l_memento},
       r_key_{(r_prefix << filter.get_num_memento_bits()) | r_memento},
       cur_prefix_{l_prefix},
-      it_{filter.hash_begin(cur_prefix_, flags)},
+      it_{filter},
       cur_ind_{0},
       flags_{flags} {
   mementos_.reserve(preallocate_size_for_prefix_mementos);
   if (filter.metadata_->payload_bits > 0) {
     payloads_.reserve(preallocate_size_for_prefix_mementos);
   }
-  fetch_matching_prefix_mementos();
+  fetch_matching_prefix_mementos(true);
   cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) -
              mementos_.begin();
   while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
     cur_prefix_++;
-    fetch_matching_prefix_mementos();
+    fetch_matching_prefix_mementos(true);
     cur_ind_ = 0;
   }
   if (cur_prefix_ > r_prefix ||
@@ -4415,6 +4415,9 @@ inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l
     const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
     const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
 
+    // it should be safe not to lock since the is occupied is not shifted
+    // so a concurrent change is not going to affect the iterator (we will discard it using sequence
+    // number if needed)
     uint64_t hash_bucket_index;
     do {
         cur_prefix_++;
@@ -4439,13 +4442,11 @@ inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l
                     | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
     } while (!filter.is_occupied(hash_bucket_index));
 
-    it_ = filter.hash_begin(hash_bucket_index);
-
-    fetch_matching_prefix_mementos(false);
+    fetch_matching_prefix_mementos(true);
     cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) - mementos_.begin();
     while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
         cur_prefix_++;
-        fetch_matching_prefix_mementos();
+        fetch_matching_prefix_mementos(true);
         cur_ind_ = 0;
     }
     if (cur_prefix_ > r_prefix ||
@@ -4472,8 +4473,6 @@ template <bool expandable>
 inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos(bool reinit_hash_it) {
     // first acquire a read lock on the entire filter to avoid issues with expansion
     std::shared_lock<std::shared_mutex> shared_lock(filter_.runtimedata_->rw_lock);
-    if (reinit_hash_it)
-        it_ = filter_.hash_begin(cur_prefix_, flags_);
     uint64_t cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter_.get_hash_seed());
     const uint32_t bucket_index_hash_size = filter_.get_bucket_index_hash_size();
     const uint32_t orig_quotient_size = filter_.metadata_->original_quotient_bits;
@@ -4497,6 +4496,9 @@ inline void Memento<expandable>::iterator::fetch_matching_prefix_mementos(bool r
         std::cerr << "Couldn't lock the bucket " << hash_bucket_index << std::endl;
       }
     }
+
+    if (reinit_hash_it)
+      it_ = filter_.hash_begin(cur_prefix_, flags_);
 
     mementos_.clear();
     if (filter_.metadata_->payload_bits > 0) {
@@ -4608,7 +4610,7 @@ inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::op
           cur_prefix_++;
             if (cur_prefix_ > r_prefix)
                 break;
-            fetch_matching_prefix_mementos();
+            fetch_matching_prefix_mementos(true);
         } while (cur_ind_ == mementos_.size());
         if (cur_prefix_ > r_prefix ||
                 (cur_prefix_ <= r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
