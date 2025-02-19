@@ -4391,7 +4391,7 @@ inline Memento<expandable>::iterator::iterator(Memento<expandable> &filter,
     cur_ind_ = 0;
   }
   if (cur_prefix_ > r_prefix ||
-      (cur_prefix_ <= r_prefix &&
+      (cur_prefix_ == r_prefix &&
        (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
     cur_prefix_ = std::numeric_limits<uint64_t>::max();
 }
@@ -4613,7 +4613,7 @@ inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::op
             fetch_matching_prefix_mementos(true);
         } while (cur_ind_ == mementos_.size());
         if (cur_prefix_ > r_prefix ||
-                (cur_prefix_ <= r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
+                (cur_prefix_ == r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
             cur_prefix_ = std::numeric_limits<uint64_t>::max();
     }
     return *this;
