@@ -2279,56 +2279,29 @@ static inline uint64_t upper_bound_fingerprint_in_run(const QF *qf, uint64_t pos
     return pos;
 }
 
-static inline int insert_mementos(QF *qf, const __uint128_t hash,
-        const uint64_t mementos[], const uint64_t memento_count, 
-        const uint32_t actual_fingerprint_size, const uint8_t runtime_lock)     // NEW IN MEMENTO
-{
-	int ret_distance = 0;
+static inline int32_t insert_mementos(QF *qf, const __uint128_t hash, const uint64_t mementos[],
+                                      const uint64_t memento_count, const uint32_t actual_fingerprint_size,
+                                      uint8_t runtime_lock) {
+    int ret_distance = 0;
     const uint32_t bucket_index_hash_size = qf->metadata->key_bits - qf->metadata->fingerprint_bits;
-	const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & \
-                                        BITMASK(actual_fingerprint_size)) \
-                                      | (1ULL << actual_fingerprint_size);
+    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(actual_fingerprint_size)
+                                    | (1ULL << actual_fingerprint_size);
     const uint32_t orig_quotient_size = qf->metadata->original_quotient_bits;
-	const uint64_t hash_bucket_index = ((hash & BITMASK(orig_quotient_size)) << (bucket_index_hash_size - orig_quotient_size))
-                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    const uint64_t hash_bucket_index = ((hash & BITMASK(orig_quotient_size)) << (bucket_index_hash_size - orig_quotient_size))
+                                    | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
 
-#ifdef DEBUG
-    if (hash_bucket_index == 125378) { 
-        fprintf(stderr, "IND=%lu - FINGERPRINT=", hash_bucket_index);
-        for (int i = qf->metadata->fingerprint_bits - 1; i >= 0; i--)
-            fprintf(stderr, "%lu", (hash_fingerprint >> i) & 1);
-        fprintf(stderr, " - EXTENSION=");
-        for (int i = qf->metadata->fingerprint_bits - 1; i >= 0; i--)
-            fprintf(stderr, "%lu", (uint64_t)(hash >> (i + qf->metadata->key_bits)) & 1);
-        fprintf(stderr, " mementos=[");
-        for (int i = 0; i < memento_count; i++)
-            fprintf(stderr, "%lu, ", mementos[i]);
-        fprintf(stderr, "\b\b]\n");
-        perror("BEFOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOORE");
-        qf_dump_block(qf, hash_bucket_index / QF_SLOTS_PER_BLOCK);
-    }
-#endif /* DEBUG */
-#ifdef DEBUG
-    fprintf(stderr, "IND=%lu - FINGERPRINT=", hash_bucket_index);
-    for (int i = qf->metadata->fingerprint_bits - 1; i >= 0; i--)
-        fprintf(stderr, "%lu", (hash_fingerprint >> i) & 1);
-    fprintf(stderr, " - EXTENSION=");
-    for (int i = qf->metadata->fingerprint_bits - 1; i >= 0; i--)
-        fprintf(stderr, "%lu", (uint64_t)(hash >> (i + qf->metadata->key_bits)) & 1);
-    fprintf(stderr, "\n");
-#endif /* DEBUG */
 
     uint32_t new_slot_count = memento_count, memento_unary_count = 0;
     const uint64_t max_memento_value = (1ULL << qf->metadata->memento_bits) - 1;
-    if (memento_count > 2) {
+    if (hash_fingerprint && memento_count > 2) {
         new_slot_count = 0;
-        int32_t total_new_bits = 2 * qf->metadata->bits_per_slot + 
+        int32_t total_new_bits = 2 * qf->metadata->bits_per_slot +
             (memento_count - 2 + (qf->metadata->memento_bits > 2)) * qf->metadata->memento_bits;
 
         if (memento_count - 2 >= max_memento_value) {
             // Must take into account the extra length of the memento counter.
             // This will rarely execute
-            uint32_t val = max_memento_value - 1;
+            uint64_t val = max_memento_value - 1;
             for (uint32_t tmp_cnt = val; tmp_cnt < memento_count - 2; tmp_cnt += val) {
                 val *= max_memento_value;
                 memento_unary_count++;
@@ -2339,24 +2312,24 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
         while (total_new_bits > 0) {
             total_new_bits -= qf->metadata->bits_per_slot;
             new_slot_count++;
-        }   // Result of new_slot_count same as using normal division: `total_new_bits / qf->metadata->bits_per_slot`
+        }   // Result of new_slot_count same as using normal division: `total_new_bits / metadata->bits_per_slot`
             // Hopefully this is a bit faster to calculate.
     }
-    else if (memento_count == 2 && mementos[0] == mementos[1]) {
+    else if (hash_fingerprint != 0 && (memento_count == 2 && mementos[0] == mementos[1])) {
         new_slot_count = 3;
     }
 
-	if (GET_NO_LOCK(runtime_lock) != QF_NO_LOCK) {
-		if (!qf_lock(qf, hash_bucket_index, /*small*/ true, runtime_lock))
-			return QF_COULDNT_LOCK;
-	}
+    if (GET_NO_LOCK(runtime_lock) != QF_NO_LOCK) {
+        if (!qf_lock(qf, hash_bucket_index, /*small*/ true, runtime_lock))
+            return QF_COULDNT_LOCK;
+    }
 
     // Find empty slots and shift everything to fit the new mementos
     uint64_t empty_runs[65];
     uint64_t empty_runs_ind = find_next_empty_slot_runs_of_size_n(qf, hash_bucket_index,
                                                             new_slot_count, empty_runs);
-    if (empty_runs[empty_runs_ind - 2] + empty_runs[empty_runs_ind - 1] - 1
-            >= qf->metadata->xnslots) {     // Check that the new data fits
+    if (empty_runs[empty_runs_ind - 2] + empty_runs[empty_runs_ind - 1] - 1 >= qf->metadata->xnslots) {
+        // Check that the new data fits
         if (GET_NO_LOCK(runtime_lock) != QF_NO_LOCK) {
             qf_unlock(qf, hash_bucket_index, /*small*/ true);
         }
@@ -2366,10 +2339,8 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
     uint64_t shift_distance = 0;
     for (int i = empty_runs_ind - 2; i >= 2; i -= 2) {
         shift_distance += empty_runs[i + 1];
-        shift_slots(qf, empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1,
-                    shift_distance);
-        shift_runends(qf, empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1,
-                    shift_distance);
+        shift_slots(qf, empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1, shift_distance);
+        shift_runends(qf, empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1, shift_distance);
     }
 
     // Update offsets
@@ -2378,7 +2349,7 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
     uint32_t last_block_to_update_offset = (empty_runs[empty_runs_ind - 2] + 
                                             empty_runs[empty_runs_ind - 1] - 1) 
                                                 / QF_SLOTS_PER_BLOCK;
-    for (uint64_t i = hash_bucket_index / QF_SLOTS_PER_BLOCK + 1; 
+    for (uint64_t i = hash_bucket_index / QF_SLOTS_PER_BLOCK + 1;
                 i <= last_block_to_update_offset; i++) {
         while (npreceding_empties < new_slot_count) {
             uint64_t r = i * QF_SLOTS_PER_BLOCK;
@@ -2400,8 +2371,7 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
             }
         }
 
-        if (get_block(qf, i)->offset + new_slot_count - npreceding_empties 
-                                < BITMASK(8 * sizeof(qf->blocks[0].offset)))
+        if (get_block(qf, i)->offset + new_slot_count - npreceding_empties < BITMASK(8 * sizeof(qf->blocks[0].offset)))
             get_block(qf, i)->offset += new_slot_count - npreceding_empties;
         else
             get_block(qf, i)->offset = BITMASK(8 * sizeof(qf->blocks[0].offset));
@@ -2412,17 +2382,14 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
                                 : run_end(qf, hash_bucket_index - 1) + 1;
     uint64_t insert_index;
     if (is_occupied(qf, hash_bucket_index)) {
-        insert_index = upper_bound_fingerprint_in_run(qf, runstart_index,
-                                                hash_fingerprint);
+        insert_index = upper_bound_fingerprint_in_run(runstart_index, hash_fingerprint);
 
         if (insert_index < empty_runs[0]) {
-            shift_slots(qf, insert_index, empty_runs[0] - 1, new_slot_count);
-            shift_runends(qf, insert_index, empty_runs[0] - 1, new_slot_count);
+            shift_slots(insert_index, empty_runs[0] - 1, new_slot_count);
+            shift_runends(insert_index, empty_runs[0] - 1, new_slot_count);
         }
-        METADATA_WORD(qf, runends, runend_index) &= ~(1ULL << 
-                ((runend_index % QF_SLOTS_PER_BLOCK) % 64));
-        METADATA_WORD(qf, runends, runend_index + new_slot_count) |= 1ULL << 
-                (((runend_index + new_slot_count) % QF_SLOTS_PER_BLOCK) % 64);
+        METADATA_WORD(qf, runends, runend_index) &= ~(1ULL << ((runend_index % QF_SLOTS_PER_BLOCK) % 64));
+        METADATA_WORD(qf, runends, runend_index + new_slot_count) |= 1ULL << (((runend_index + new_slot_count) % QF_SLOTS_PER_BLOCK) % 64);
     }
     else {
         if (hash_bucket_index == empty_runs[0]) {
@@ -2435,11 +2402,8 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
                 shift_runends(qf, insert_index, empty_runs[0] - 1, new_slot_count);
             }
         }
-
-        METADATA_WORD(qf, runends, insert_index + new_slot_count - 1) |= 1ULL << 
-                (((insert_index + new_slot_count - 1) % QF_SLOTS_PER_BLOCK) % 64);
-        METADATA_WORD(qf, occupieds, hash_bucket_index) |= 1ULL <<
-                ((hash_bucket_index % QF_SLOTS_PER_BLOCK) % 64);
+        METADATA_WORD(qf, runends, insert_index + new_slot_count - 1) |= 1ULL << (((insert_index + new_slot_count - 1) % QF_SLOTS_PER_BLOCK) % 64);
+        METADATA_WORD(qf, occupieds, hash_bucket_index) |= 1ULL << ((hash_bucket_index % QF_SLOTS_PER_BLOCK) % 64);
     }
 
     // Move in the payload!
@@ -2449,11 +2413,11 @@ static inline int insert_mementos(QF *qf, const __uint128_t hash,
     modify_metadata(qf, &qf->metadata->noccupied_slots, new_slot_count);
     modify_metadata(qf, &qf->metadata->nelts, memento_count);
 
-	if (GET_NO_LOCK(runtime_lock) != QF_NO_LOCK) {
-		qf_unlock(qf, hash_bucket_index, /*small*/ true);
-	}
+    if (GET_NO_LOCK(runtime_lock) != QF_NO_LOCK) {
+        qf_unlock(qf, hash_bucket_index, /*small*/ true);
+    }
 
-	return ret_distance;
+    return ret_distance;
 }
 
 /*************************************************************************
