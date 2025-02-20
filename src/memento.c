@@ -2382,11 +2382,11 @@ static inline int32_t insert_mementos(QF *qf, const __uint128_t hash, const uint
                                 : run_end(qf, hash_bucket_index - 1) + 1;
     uint64_t insert_index;
     if (is_occupied(qf, hash_bucket_index)) {
-        insert_index = upper_bound_fingerprint_in_run(runstart_index, hash_fingerprint);
+        insert_index = upper_bound_fingerprint_in_run(qf, runstart_index, hash_fingerprint);
 
         if (insert_index < empty_runs[0]) {
-            shift_slots(insert_index, empty_runs[0] - 1, new_slot_count);
-            shift_runends(insert_index, empty_runs[0] - 1, new_slot_count);
+            shift_slots(qf, insert_index, empty_runs[0] - 1, new_slot_count);
+            shift_runends(qf, insert_index, empty_runs[0] - 1, new_slot_count);
         }
         METADATA_WORD(qf, runends, runend_index) &= ~(1ULL << ((runend_index % QF_SLOTS_PER_BLOCK) % 64));
         METADATA_WORD(qf, runends, runend_index + new_slot_count) |= 1ULL << (((runend_index + new_slot_count) % QF_SLOTS_PER_BLOCK) % 64);
