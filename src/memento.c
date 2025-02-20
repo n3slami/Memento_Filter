@@ -2605,7 +2605,8 @@ int64_t qf_resize_malloc(QF *qf, uint64_t nslots)   // NEW IN MEMENTO
 	QFi qfi;
 	qf_iterator_from_position(qf, &qfi, 0);
 	int64_t ret_numkeys = 0;
-    uint64_t key, memento_count, mementos[1024], fingerprint_size;
+    uint64_t key, memento_count, mementos[1024];
+    int32_t fingerprint_size;
 	do {
 		memento_count = qfi_get_hash(&qfi, &key, mementos);
 #ifdef DEBUG
@@ -2696,14 +2697,17 @@ uint64_t qf_resize(QF *qf, uint64_t nslots, void* buffer, uint64_t buffer_len)  
 	// copy keys from qf into new_qf
 	QFi qfi;
 	qf_iterator_from_position(qf, &qfi, 0);
-    uint64_t key, memento_count, mementos[1024], fingerprint_size;
+    uint64_t key, memento_count, mementos[1024];
+    int32_t fingerprint_size;
 	do {
 		memento_count = qfi_get_hash(&qfi, &key, mementos);
 		qfi_next(&qfi);
         fingerprint_size = highbit_position(key) - qf->metadata->key_bits 
                                         + qf->metadata->fingerprint_bits;
-        if (memento_count > 1)
-            fingerprint_size /= 2;
+        if (fingerprint_size == 0) {
+			fprintf(stderr, "Failed to expand: ran out of fingerprint bits.\n");
+			exit(0);
+        }
 
 		int ret = insert_mementos(&new_qf, key, mementos, memento_count, 
                             fingerprint_size - 1, QF_NO_LOCK | QF_KEY_IS_HASH);
@@ -2799,7 +2803,7 @@ int64_t qf_insert_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) 
 	if (qf->metadata->noccupied_slots >= qf->metadata->nslots * 0.95 ||
             qf->metadata->noccupied_slots + 1 >= qf->metadata->nslots) {
 		if (qf->metadata->auto_resize) {
-			fprintf(stderr, "Resizing the CQF.\n");
+			fprintf(stdout, "Resizing the CQF.\n");
 			qf_resize_malloc(qf, qf->metadata->nslots * 2);
 		} else {
 			return QF_NO_SPACE;
