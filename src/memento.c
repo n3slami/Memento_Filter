@@ -3135,7 +3135,7 @@ void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags)   
     modify_metadata(qf, &qf->metadata->nelts, n);
 }
 
-inline int32_t delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
+inline int32_t qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
     if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
         if (qf->metadata->hash_mode == QF_HASH_DEFAULT)
             key = MurmurHash64A(&key, sizeof(key), qf->metadata->seed);
