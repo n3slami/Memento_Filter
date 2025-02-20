@@ -1407,6 +1407,96 @@ static inline int remove_replace_slots_and_shift_remainders_and_runends_and_offs
 	return ret_current_distance;
 }
 
+static inline int32_t remove_slots_and_shift_remainders_and_runends_and_offsets(QF *qf,
+                                                                                bool only_item_in_run,
+                                                                                uint64_t bucket_index, 
+                                                                                uint64_t remove_index,
+                                                                                uint64_t remove_length) {
+    // If this is the last thing in its run, then we may need to set a new runend bit
+    const bool was_runend = is_runend(qf, remove_index + remove_length - 1);
+    if (was_runend && !only_item_in_run)
+        METADATA_WORD(qf, runends, remove_index - 1) |= 1ULL << ((remove_index - 1) % 64);
+
+    // shift slots back one run at a time
+    uint64_t original_bucket = bucket_index;
+    uint64_t current_bucket = bucket_index;
+    uint64_t current_slot = remove_index;
+    uint64_t current_distance = remove_length;
+    int64_t last_slot_in_initial_cluster = -1;
+    int ret_current_distance = current_distance;
+
+    while (current_distance > 0) { // every iteration of this loop deletes one slot from the item and shifts the cluster accordingly
+                                   // start with an occupied-runend pair
+        current_bucket = bucket_index;
+        current_slot = remove_index + current_distance - 1;
+
+        if (!was_runend) 
+            while (!is_runend(qf, current_slot))
+                current_slot++; // step to the end of the run
+        do {
+            current_bucket++;
+        } while (current_bucket <= current_slot && !is_occupied(qf, current_bucket)); // step to the next occupied bucket
+                                                                                      // current_slot should now be on the last slot in the run and current_bucket should be on the bucket for the next run
+
+        while (current_bucket <= current_slot) { // until we find the end of the cluster,
+                                                 // find the last slot in the run
+            current_slot++; // step into the next run
+            while (!is_runend(qf, current_slot))
+                current_slot++; // find the last slot in this run
+                                // find the next bucket
+            do {
+                current_bucket++;
+            } while (current_bucket <= current_slot && !is_occupied(qf, current_bucket));
+        }
+
+        if (last_slot_in_initial_cluster == -1)
+            last_slot_in_initial_cluster = current_slot;
+
+        // now that we've found the last slot in the cluster, we can shift the whole cluster over by 1
+        uint64_t i;
+        for (i = remove_index; i < current_slot; i++) {
+            set_slot(qf, i, get_slot(qf, i + 1));
+            if (is_runend(qf, i) != is_runend(qf, i + 1))
+                METADATA_WORD(qf, runends, i) ^= 1ULL << (i % 64);
+        }
+        set_slot(qf, i, 0);
+        METADATA_WORD(qf, runends, i) &= ~(1ULL << (i % 64));
+
+        current_distance--;
+    }
+
+    // reset the occupied bit of the hash bucket index if the hash is the
+    // only item in the run and is removed completely.
+    if (only_item_in_run)
+        METADATA_WORD(qf, occupieds, bucket_index) &= ~(1ULL << (bucket_index % 64));
+
+    // update the offset bits.
+    // find the number of occupied slots in the original_bucket block.
+    // Then find the runend slot corresponding to the last run in the
+    // original_bucket block.
+    // Update the offset of the block to which it belongs.
+    uint64_t original_block = original_bucket / QF_SLOTS_PER_BLOCK;
+    if (remove_length > 0) {	// we only update offsets if we shift/delete anything
+        while (original_block < last_slot_in_initial_cluster / QF_SLOTS_PER_BLOCK) {
+            uint64_t last_occupieds_hash_index = QF_SLOTS_PER_BLOCK * original_block + (QF_SLOTS_PER_BLOCK - 1);
+            uint64_t runend_index = run_end(qf, last_occupieds_hash_index);
+            // runend spans across the block
+            // update the offset of the next block
+            if (runend_index / QF_SLOTS_PER_BLOCK == original_block) { // if the run ends in the same block
+                get_block(qf, original_block + 1)->offset = 0;
+            } else { // if the last run spans across the block
+                const uint32_t max_offset = (uint32_t) BITMASK(8 * sizeof(qf->blocks[0].offset));
+                const uint32_t new_offset = runend_index - last_occupieds_hash_index;
+                get_block(qf, original_block + 1)->offset = new_offset < max_offset ? new_offset : max_offset;
+            }
+            original_block++;
+        }
+    }
+
+    modify_metadata(qf, &qf->metadata->noccupied_slots, -((int32_t) remove_length));
+    return ret_current_distance;
+}
+
 static inline int32_t make_empty_slot_for_memento_list(QF *qf,
                                         uint64_t bucket_index, uint64_t pos)    // NEW IN MEMENTO
 {
@@ -3045,60 +3135,47 @@ void qf_bulk_load(QF *qf, uint64_t *sorted_hashes, uint64_t n, uint8_t flags)   
     modify_metadata(qf, &qf->metadata->nelts, n);
 }
 
-int qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags)     // NEW IN MEMENTO 
-{
-#ifdef DEBUG
-    fprintf(stderr, "DELETING SINGLE MEMENTO %lu\n", memento);
-#endif /* DEBUG */
-
-	if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
-		if (qf->metadata->hash_mode == QF_HASH_DEFAULT)
-			key = MurmurHash64A(((void *)&key), sizeof(key), qf->metadata->seed);
-		else if (qf->metadata->hash_mode == QF_HASH_INVERTIBLE)
-            // Large hash!
-			key = hash_64(key, BITMASK(63));
-	}
-    const uint64_t orig_nslots = qf->metadata->nslots >> (qf->metadata->key_bits 
-                                                        - qf->metadata->fingerprint_bits 
-                                                        - qf->metadata->original_quotient_bits);
-    const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(qf->metadata->original_quotient_bits)) 
-                                << (32 - qf->metadata->original_quotient_bits)), orig_nslots);
+inline int32_t delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags) {
+    if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
+        if (qf->metadata->hash_mode == QF_HASH_DEFAULT)
+            key = MurmurHash64A(&key, sizeof(key), qf->metadata->seed);
+        else if (qf->metadata->hash_mode == QF_HASH_INVERTIBLE) // Large hash!
+            key = hash_64(key, BITMASK(63));
+    }
+    const uint32_t bucket_index_hash_size = qf->metadata->key_bits - qf->metadata->fingerprint_bits;
+    const uint32_t orig_quotient_size = qf->metadata->original_quotient_bits;
+    const uint64_t orig_nslots = qf->metadata->nslots >> (qf->metadata->key_bits
+                                 - qf->metadata->fingerprint_bits
+                                 - qf->metadata->original_quotient_bits);
+    const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size)) 
+                                                    << (32 - orig_quotient_size)), orig_nslots);
     key &= ~(BITMASK(qf->metadata->original_quotient_bits));
     key |= fast_reduced_part;
-	uint64_t hash = key;
+    uint64_t hash = key;
+    const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+                                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(qf->metadata->fingerprint_bits) 
+                                    | (1ULL << qf->metadata->fingerprint_bits);
 
-    const uint32_t bucket_index_hash_size = qf->metadata->key_bits - qf->metadata->fingerprint_bits;
-	const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(qf->metadata->fingerprint_bits))
-                                        | (1ULL << qf->metadata->fingerprint_bits);
-    const uint32_t orig_quotient_size = qf->metadata->original_quotient_bits;
-	const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
-                        | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+    if (GET_NO_LOCK(flags) != QF_NO_LOCK) {
+        if (!qf_lock(qf, hash_bucket_index, /*small*/ true, flags))
+            return QF_COULDNT_LOCK;
+    }
 
-	if (GET_NO_LOCK(flags) != QF_NO_LOCK) {
-		if (!qf_lock(qf, hash_bucket_index, /*small*/ true, flags))
-			return QF_COULDNT_LOCK;
-	}
-
-    int64_t runstart_index = hash_bucket_index == 0 ? 0 
-                                    : run_end(qf, hash_bucket_index - 1) + 1;
-    uint64_t fingerprint_pos = runstart_index;
-    uint64_t matching_position[10], match_amount[10], ind = 0;
-    uint8_t matching_cnt[qf->metadata->fingerprint_bits + 1];
-    memset(matching_cnt, 0, qf->metadata->fingerprint_bits + 1);
+    bool handled = false;
+    const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(qf, hash_bucket_index - 1) + 1;
+    int64_t fingerprint_pos = runstart_index;
+    uint64_t matching_positions[50], ind = 0;
     while (true) {
-        fingerprint_pos = next_matching_fingerprint_in_run(qf, fingerprint_pos,
-                                                            hash_fingerprint);
+        fingerprint_pos = next_matching_fingerprint_in_run(qf, fingerprint_pos, hash_fingerprint);
         if (fingerprint_pos < 0) {
             // Matching fingerprints exhausted
             break;
         }
-        matching_position[ind] = fingerprint_pos;
+        matching_positions[ind++] = fingerprint_pos;
         const uint64_t current_fingerprint = GET_FINGERPRINT(qf, fingerprint_pos);
         const uint64_t next_fingerprint = GET_FINGERPRINT(qf, fingerprint_pos + 1);
-        match_amount[ind++] = highbit_position(current_fingerprint);
-        matching_cnt[match_amount[ind - 1]]++;
-        if (!is_runend(qf, fingerprint_pos) && 
-                current_fingerprint > next_fingerprint) {
+        if (!is_runend(qf, fingerprint_pos) && current_fingerprint > next_fingerprint) {
             const uint64_t m1 = GET_MEMENTO(qf, fingerprint_pos);
             const uint64_t m2 = GET_MEMENTO(qf, fingerprint_pos + 1);
             fingerprint_pos += 2;
@@ -3109,48 +3186,35 @@ int qf_delete_single(QF *qf, uint64_t key, uint64_t memento, uint8_t flags)     
             fingerprint_pos++;
         }
 
-#ifdef DEBUG
-        fprintf(stderr, "MATCHING FINGERPRINT AT pos=%lu amount=%lu\n", matching_position[ind - 1], match_amount[ind - 1]);
-#endif /* DEBUG */
-
         if (is_runend(qf, fingerprint_pos - 1))
             break;
     }
-    for (uint32_t i = 1; i <= qf->metadata->fingerprint_bits; i++)
-        matching_cnt[i] += matching_cnt[i - 1];
 
-    uint64_t sorted_positions[10];
-    for (uint32_t i = 0; i < ind; i++) {
-#ifdef DEBUG
-        fprintf(stderr, "WELP i=%u --- matching_cnt=%u match_amount=%lu pos=%lu\n", 
-                        i, matching_cnt[match_amount[i]], match_amount[i], matching_position[i]);
-#endif /* DEBUG */
-        sorted_positions[--matching_cnt[match_amount[i]]] = matching_position[i];
-    }
-    bool handled = false;
     for (int32_t i = ind - 1; i >= 0; i--) {
         int32_t old_slot_count, new_slot_count;
-        remove_mementos_from_prefix_set(qf, sorted_positions[i], &memento,
-                            &handled, 1, &new_slot_count, &old_slot_count);
+        remove_mementos_from_prefix_set(qf, matching_positions[i], &memento, &handled,
+                                        1, &new_slot_count, &old_slot_count);
         if (handled) {
             if (new_slot_count < old_slot_count) {
-                int32_t operation = ((new_slot_count == 0) && 
-                                    (run_end(qf, hash_bucket_index) - runstart_index + 1 == old_slot_count));
-                remove_replace_slots_and_shift_remainders_and_runends_and_offsets(qf, 
-                        operation, hash_bucket_index, sorted_positions[i] + new_slot_count,
-                        NULL, 0, old_slot_count - new_slot_count);
-                modify_metadata(qf, &qf->metadata->noccupied_slots, new_slot_count - old_slot_count);
+                const bool only_item_in_run = is_runend(qf, runstart_index);
+                remove_slots_and_shift_remainders_and_runends_and_offsets(qf,
+                                                                          only_item_in_run,
+                                                                          hash_bucket_index,
+                                                                          matching_positions[i] + new_slot_count,
+                                                                          old_slot_count - new_slot_count);
             }
             break;
         }
     }
-    modify_metadata(qf, &qf->metadata->nelts, -1);
 
-	if (GET_NO_LOCK(flags) != QF_NO_LOCK) {
-		qf_unlock(qf, hash_bucket_index, /*small*/ true);
-	}
+    if (handled)
+        modify_metadata(qf, &qf->metadata->nelts, -1);
 
-    return (handled ? 0 : QF_DOESNT_EXIST);
+    if (GET_NO_LOCK(flags) != QF_NO_LOCK) {
+        qf_unlock(qf, hash_bucket_index, /*small*/ true);
+    }
+
+    return handled ? 0 : QF_DOESNT_EXIST;
 }
 
 int64_t qf_rejuvenate_construct_prefix_set(QF *qf, uint64_t key, 
