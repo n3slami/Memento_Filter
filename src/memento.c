@@ -17,6 +17,7 @@
  *      comments of the form "NEW IN MEMENTO."
  */
 
+#include <cstdint>
 #include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -2610,8 +2611,8 @@ int64_t qf_resize_malloc(QF *qf, uint64_t nslots)   // NEW IN MEMENTO
 #ifdef DEBUG
         fprintf(stderr, "@ run=%lu current=%lu\n", qfi.run, qfi.current);
 #endif /* DEBUG */
-        fingerprint_size = highbit_position(key) - qf->metadata->key_bits 
-                                        + qf->metadata->fingerprint_bits;
+        fingerprint_size = highbit_position(key) - qf->metadata->key_bits + qf->metadata->fingerprint_bits;
+        const int64_t new_fingerprint_size = fingerprint_size - 1;
 
 #ifdef DEBUG
         assert(fingerprint_size < 64);
@@ -2627,8 +2628,20 @@ int64_t qf_resize_malloc(QF *qf, uint64_t nslots)   // NEW IN MEMENTO
 #endif /* DEBUG */
 		qfi_next(&qfi);
 
-		int ret = insert_mementos(&new_qf, key, mementos, memento_count, 
-                            fingerprint_size - 1, QF_NO_LOCK | QF_KEY_IS_HASH);
+        int ret;
+        if (new_fingerprint_size < 0) {
+            const uint32_t bucket_index_hash_size = new_qf.metadata->key_bits - new_qf.metadata->fingerprint_bits;
+            const uint64_t key_1 = (key & BITMASK(bucket_index_hash_size - 1)) | (1ULL << bucket_index_hash_size);
+            const uint64_t key_2 = key_1 | (1ULL << (bucket_index_hash_size - 1));
+            ret = insert_mementos(&new_qf, key_1, mementos, memento_count, 0, QF_NO_LOCK | QF_KEY_IS_HASH);
+            if (ret < 0) {
+                fprintf(stderr, "Failed to insert key: %" PRIx64 " into the new CQF.\n", key);
+                return ret;
+            }
+            ret = insert_mementos(&new_qf, key_2, mementos, memento_count, 0, QF_NO_LOCK | QF_KEY_IS_HASH);
+        }
+        else
+            ret = insert_mementos(&new_qf, key, mementos, memento_count, new_fingerprint_size, QF_NO_LOCK | QF_KEY_IS_HASH);
 		if (ret < 0) {
 			fprintf(stderr, "Failed to insert key: %" PRIx64 " into the new CQF.\n", key);
 			return ret;
