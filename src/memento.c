@@ -17,7 +17,6 @@
  *      comments of the form "NEW IN MEMENTO."
  */
 
-#include <cstdint>
 #include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
