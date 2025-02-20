@@ -3812,7 +3812,7 @@ inline Memento<expandable>::iterator::iterator(const Memento& filter, const uint
         cur_ind_ = 0;
     }
     if (cur_prefix_ > r_prefix ||
-            (cur_prefix_ <= r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
+            (cur_prefix_ == r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
         cur_prefix_ = std::numeric_limits<uint64_t>::max();
 }
 
