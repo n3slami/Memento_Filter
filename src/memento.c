@@ -3408,6 +3408,8 @@ int qf_point_query(const QF *qf, uint64_t key, uint64_t memento, uint8_t flags) 
 int qf_range_query(const QF *qf, uint64_t l_key, uint64_t l_memento,
                                   uint64_t r_key, uint64_t r_memento, uint8_t flags)    // NEW IN MEMENTO 
 {
+    const uint64_t orig_l_key = l_key;
+    const uint64_t orig_r_key = r_key;
 	if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
 		if (qf->metadata->hash_mode == QF_HASH_DEFAULT) {
 			l_key = MurmurHash64A(((void *) &l_key), sizeof(l_key), qf->metadata->seed);
@@ -3557,6 +3559,42 @@ int qf_range_query(const QF *qf, uint64_t l_key, uint64_t l_memento,
 
                 if (is_runend(qf, fingerprint_pos - 1))
                     break;
+            }
+        }
+
+        // Check middle prefixes, if they exist
+        for (uint64_t mid_key = orig_l_key + 1; mid_key < orig_r_key; mid_key++) {
+            uint64_t mid_hash = mid_key;
+            if (GET_KEY_HASH(flags) != QF_KEY_IS_HASH) {
+                if (qf->metadata->hash_mode == QF_HASH_DEFAULT) {
+                    mid_hash = MurmurHash64A(((void *) &mid_hash), sizeof(mid_hash), qf->metadata->seed);
+                }
+                else if (qf->metadata->hash_mode == QF_HASH_INVERTIBLE) {
+                    mid_hash = hash_64(mid_hash, BITMASK(63));
+                }
+            }
+            const uint64_t mid_fast_reduced_part = fast_reduce(((mid_hash & BITMASK(qf->metadata->original_quotient_bits)) 
+                        << (32 - qf->metadata->original_quotient_bits)), orig_nslots);
+            const uint64_t mid_hash_bucket_index = (mid_fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+                | ((mid_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+            const uint64_t mid_hash_fingerprint = (mid_hash >> bucket_index_hash_size) & BITMASK(qf->metadata->fingerprint_bits)
+                                                    | (1ULL << qf->metadata->fingerprint_bits);
+
+            if (!is_occupied(qf, mid_hash_bucket_index))
+                continue;
+            uint64_t mid_runstart_index = mid_hash_bucket_index == 0 ? 0 
+                : run_end(qf, mid_hash_bucket_index - 1) + 1;
+            if (mid_runstart_index < mid_hash_bucket_index)
+                mid_runstart_index = mid_hash_bucket_index;
+
+            // Check the current middle prefix
+            if (mid_runstart_index < qf->metadata->xnslots) {
+                // Find a matching fingerprint
+                int64_t fingerprint_pos = next_matching_fingerprint_in_run(qf, mid_runstart_index, mid_hash_fingerprint);
+                if (fingerprint_pos >= 0) {
+                    // A matching fingerprint exists
+                    return true;
+                }
             }
         }
 
