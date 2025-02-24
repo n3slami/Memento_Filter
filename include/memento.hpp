@@ -621,6 +621,7 @@ private:
         uint64_t nelts;
         uint64_t ndistinct_elts;
         uint64_t noccupied_slots;
+        double expansion_threshold;
     };
 
     /**
@@ -644,7 +645,7 @@ public:
 
     explicit Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bits,
                      hashmode hash_mode, uint32_t seed, const uint64_t orig_quotient_bit_cnt = 0,
-                     uint64_t payload_bits = 0);
+                     uint64_t payload_bits = 0, double expansion_threshold_ = 0.95);
     ~Memento();
     Memento(const Memento& other);
     Memento(Memento&& other) noexcept;
@@ -3235,7 +3236,7 @@ inline Memento<expandable>::Memento(char *src) {
 template <bool expandable>
 inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bits,
                                     hashmode hash_mode, uint32_t seed, const uint64_t orig_quotient_bit_cnt,
-                                    uint64_t payload_bits) {
+                                    uint64_t payload_bits, double expansion_threshold) {
     uint64_t num_slots, xnslots, nblocks;
     uint64_t fingerprint_bits, bits_per_slot;
     uint64_t size;
@@ -3287,6 +3288,7 @@ inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t
     metadata_->ndistinct_elts = 0;
     metadata_->noccupied_slots = 0;
     metadata_->payload_bits = payload_bits;
+    metadata_->expansion_threshold = expansion_threshold;
 
     runtimedata_ = new qfruntime;
     runtimedata_->num_locks = (metadata_->xnslots / num_slots_to_lock_) + 2;
@@ -3425,7 +3427,8 @@ inline int64_t Memento<expandable>::resize(uint64_t nslots) {
     // acquire an exclusive lock to resize the filter
     std::unique_lock<std::shared_mutex> lock(runtimedata_->rw_lock);
     Memento new_memento(nslots, metadata_->key_bits + expandable, metadata_->memento_bits,
-                      metadata_->hash_mode, metadata_->seed, metadata_->original_quotient_bits, metadata_->payload_bits);
+                      metadata_->hash_mode, metadata_->seed, metadata_->original_quotient_bits, metadata_->payload_bits,
+                      metadata_->expansion_threshold);
     new_memento.set_auto_resize(metadata_->auto_resize);
 
 	// Copy keys from this filter into the new filter
@@ -3506,7 +3509,7 @@ inline int32_t Memento<expandable>::insert_mementos(uint64_t key, uint64_t memen
     uint32_t new_slot_count = 1 + (memento_count + 1) / 2;
 	// We fill up the CQF up to 95% load factor.
 	// This is a very conservative check.
-	if (metadata_->noccupied_slots >= metadata_->nslots * 0.95 ||
+	if (metadata_->noccupied_slots >= metadata_->nslots * metadata_->expansion_threshold ||
         metadata_->noccupied_slots + new_slot_count >= metadata_->nslots) {
 		if (metadata_->auto_resize)
 			resize(metadata_->nslots * 2);
@@ -3545,7 +3548,7 @@ template <bool expandable>
 inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8_t flags, uint64_t payload) {
     // We fill up the CQF up to 95% load factor.
     // This is a very conservative check.
-    if (metadata_->noccupied_slots >= metadata_->nslots * 0.95 ||
+    if (metadata_->noccupied_slots >= metadata_->nslots * metadata_->expansion_threshold ||
             metadata_->noccupied_slots + 1 >= metadata_->nslots) {
         if (metadata_->auto_resize)
             resize(metadata_->nslots * 2);
