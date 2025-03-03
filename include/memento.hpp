@@ -4468,6 +4468,7 @@ inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::op
     cur_ind_ = other.cur_ind_;
     mementos_ = other.mementos_;
     payloads_ = other.payloads_;
+    flags_ = other.flags_;
     return *this;
 }
 
