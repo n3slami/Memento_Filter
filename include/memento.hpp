@@ -3269,7 +3269,7 @@ inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t
     metadata_->magic_endian_number = magic_number_;
     metadata_->auto_resize = expandable;
     metadata_->hash_mode = hash_mode;
-    metadata_->total_size_in_bytes = size;
+    metadata_->total_size_in_bytes = total_num_bytes;
     metadata_->seed = seed;
     metadata_->nslots = num_slots;
     metadata_->xnslots = xnslots;
