@@ -642,10 +642,9 @@ public:
      * As Memento filter is based on the RQSF, it follows the same general code
      * structure and reuses its relevant code segments.
      */
-
     explicit Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bits,
                      hashmode hash_mode, uint32_t seed, const uint64_t orig_quotient_bit_cnt = 0,
-                     uint64_t payload_bits = 0, double expansion_threshold_ = 0.95);
+                     uint64_t payload_bits = 0, double expansion_threshold_ = 0.95, bool auto_resize = expandable);
     ~Memento();
     Memento(const Memento& other);
     Memento(Memento&& other) noexcept;
@@ -878,6 +877,14 @@ public:
     /* Payload info */
     uint64_t get_payload_bits() const { return metadata_->payload_bits; }
 
+    uint64_t get_num_occupied_slots() const { return metadata_->noccupied_slots; }
+
+    uint64_t get_nslots() const { return metadata_->nslots; }
+
+    double get_expansion_threshold() const { return metadata_->expansion_threshold; }
+
+    bool is_expandable() const { return expandable; }
+
     /* Status Codes */
     static constexpr int32_t err_no_space = -1;
     static constexpr int32_t err_couldnt_lock = -2;
@@ -993,6 +1000,27 @@ public:
     hash_iterator hash_begin(uint64_t key, uint8_t flags) const;
 
     hash_iterator hash_end() const;
+
+    /**
+     * Inserts the list of mementos in `mementos` with the shared prefix hash
+     * `hash`. The size of the fingerprints being inserted is controlled by
+     * `actual_fingerprint_size`. This is used to handle variable-length
+     * fingerprints in an expandable memento filter, where the slots may be
+     * wider than the fingerprints.
+     *
+     * @param hash - The shared prefix hash of the keys.
+     * @param mementos - The list of mementos being inserted.
+     * @param memento_count - The number of mementos in the list.
+     * @param actual_fingerprint_size - The size of the fingerprint being
+     * inserted.
+     * @param runtime_lock - The lock guarding the runtime data of the filter.
+     * @returns The distance of the position the mementos were inserted from
+     * their canonical slot. A negative status code is returned if insertion
+     * fails.
+     */
+    int32_t insert_mementos(const __uint128_t hash, const uint64_t mementos[], const uint64_t memento_count,
+                            const uint32_t actual_fingerprint_size, uint8_t runtime_lock,
+                            uint64_t payloads[] = nullptr);
 
 private:
     qfruntime *runtimedata_;
@@ -1334,27 +1362,6 @@ private:
      * beyond the end of the run.
      */
     uint64_t upper_bound_fingerprint_in_run(uint64_t pos, uint64_t fingerprint) const;
-
-    /**
-     * Inserts the list of mementos in `mementos` with the shared prefix hash
-     * `hash`. The size of the fingerprints being inserted is controlled by
-     * `actual_fingerprint_size`. This is used to handle variable-length
-     * fingerprints in an expandable memento filter, where the slots may be
-     * wider than the fingerprints.
-     *
-     * @param hash - The shared prefix hash of the keys.
-     * @param mementos - The list of mementos being inserted.
-     * @param memento_count - The number of mementos in the list.
-     * @param actual_fingerprint_size - The size of the fingerprint being
-     * inserted.
-     * @param runtime_lock - The lock guarding the runtime data of the filter.
-     * @returns The distance of the position the mementos were inserted from
-     * their canonical slot. A negative status code is returned if insertion
-     * fails.
-     */
-    int32_t insert_mementos(const __uint128_t hash, const uint64_t mementos[], const uint64_t memento_count, 
-                            const uint32_t actual_fingerprint_size, uint8_t runtime_lock,
-                            uint64_t payloads[] = nullptr);
 
     /**
      * Retrieves the smallest memento in the keepsake box stored in the `pos`-th
@@ -3236,7 +3243,7 @@ inline Memento<expandable>::Memento(char *src) {
 template <bool expandable>
 inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t memento_bits,
                                     hashmode hash_mode, uint32_t seed, const uint64_t orig_quotient_bit_cnt,
-                                    uint64_t payload_bits, double expansion_threshold) {
+                                    uint64_t payload_bits, double expansion_threshold, bool auto_resize) {
     uint64_t num_slots, xnslots, nblocks;
     uint64_t fingerprint_bits, bits_per_slot;
     uint64_t size;
@@ -3267,7 +3274,7 @@ inline Memento<expandable>::Memento(uint64_t nslots, uint64_t key_bits, uint64_t
     blocks_ = reinterpret_cast<qfblock *>(metadata_ + 1);
 
     metadata_->magic_endian_number = magic_number_;
-    metadata_->auto_resize = expandable;
+    metadata_->auto_resize = auto_resize;
     metadata_->hash_mode = hash_mode;
     metadata_->total_size_in_bytes = total_num_bytes;
     metadata_->seed = seed;
