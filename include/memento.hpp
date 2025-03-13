@@ -977,9 +977,6 @@ public:
     iterator begin(uint64_t l_prefix, uint64_t l_memento, uint64_t r_prefix,
                    uint64_t r_memento, uint8_t flags);
 
-    iterator* begin(Memento* filter, uint64_t l_prefix, uint64_t l_memento, uint64_t r_prefix,
-                   uint64_t r_memento, uint8_t flags);
-
 
 
 	iterator end();
@@ -4392,19 +4389,6 @@ inline typename Memento<expandable>::iterator Memento<expandable>::begin(const u
                                         const uint64_t r_memento,
                                         const uint8_t flags) {
     return iterator(*this, l_prefix, l_memento, r_prefix, r_memento, flags);
-}
-
-template <bool expandable>
-inline typename Memento<expandable>::iterator* Memento<expandable>::begin(Memento<expandable>* filter,
-                                                                         const uint64_t l_prefix,
-                                                                         const uint64_t l_memento,
-                                                                         const uint64_t r_prefix,
-                                                                         const uint64_t r_memento,
-                                                                         const uint8_t flags) {
-  if (filter == nullptr) {
-    return nullptr;
-  }
-  return new iterator(*filter, l_prefix, l_memento, r_prefix, r_memento, flags);
 }
 
 template <bool expandable>
