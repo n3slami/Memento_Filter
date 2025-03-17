@@ -779,6 +779,24 @@ public:
      */
     int32_t delete_single(uint64_t key, uint64_t memento, uint8_t flags);
 
+    /**
+     * Delete a single key from Memento filter. The provided key is deleted
+     * from the keepsake box with the longest matching fingerprint to avoid
+     * false-positives. The deletion is done only if it matches the given payload.
+     *
+     * @param key - The input key's prefix.
+     * @param key - The input key's memento.
+     * @param flags - Flags determining the filter's behavior under
+     * concurrency, as well as if the prefix is already hashed or not. If
+     * `flag_wait_for_lock` is set to 1, the thread spins. Otherwise, it tries to
+     * acquire the lock once.
+     * @returns == 0: the key was successfully deleted.
+     *          == `err_doesnt_exist`: there was no matching key in the filter.
+     *          == `err_couldnt_lock`: `flag_try_once_lock` has failed to acquire
+     *                                 the lock.
+     */
+    int32_t delete_single_by_payload(uint64_t key, uint64_t memento, uint8_t flags, uint64_t payload);
+
     /** 
      * Checks Memento filter for the existence of the point corresponding to
      * the provided prefix and memento. 
@@ -1276,6 +1294,33 @@ private:
     int32_t remove_mementos_from_prefix_set(const uint64_t pos, const uint64_t *mementos,
                                             bool *handled, const uint32_t memento_cnt,
                                             int32_t *new_slot_count, int32_t *old_slot_count);
+
+    /**
+     * Removes the memento in the list `mementos` from the keepsake box store
+     * at `pos` if it matches the given payload. A in/out parameter of a boolean list is also passed to
+     * indicate which mementos must be removed and which have already been
+     * removed. This is included to simplify the prioritized removal of
+     * mementos from multiple different keepsake boxes, with the ones with
+     * longer fingerprints having higher priority.
+     *
+     * @param pos[in] - The position of the keepsake box, i.e., the slot where it's
+     * fingerprint is stored in.
+     * @param mementos[in] - The list of mementos to remove.
+     * @param handled[in, out] - A boolean list indicating which mementos of
+     * the list have been previously removed and which remain. This list is
+     * further updated for future calls to this function. The `i`-th boolean in
+     * this list corresponds to the `i`-th memento in `mementos`.
+     * @param memento_cnt - The length of the list of mementos.
+     * @param new_slot_count - The number of slots the keepsake box uses after
+     * the removal of mementos.
+     * @param old_slot_count - The number of slots the keepsake box used before
+     * the removal of mementos.
+     * @returns The number of mementos successfully removed from the keepsake
+     * box.
+     */
+    int32_t remove_mementos_from_prefix_set_by_payload(const uint64_t pos, const uint64_t *mementos,
+                                            bool *handled, const uint32_t memento_cnt,
+                                            int32_t *new_slot_count, int32_t *old_slot_count, uint64_t payload);
 
 
     /**
@@ -2169,6 +2214,155 @@ inline int32_t Memento<expandable>::write_prefix_set(const uint64_t pos, const u
     return res;
 }
 
+template <bool expandable>
+inline int32_t Memento<expandable>::remove_mementos_from_prefix_set_by_payload(const uint64_t pos, const uint64_t *mementos,
+                                                                    bool *handled, const uint32_t memento_cnt,
+                                                                    int32_t *new_slot_count, int32_t *old_slot_count, uint64_t payload) {
+  const uint64_t f1 = get_fingerprint(pos);
+  const uint64_t m1 = get_memento(pos);
+  const uint64_t f2 = get_fingerprint(pos + 1);
+  const uint64_t m2 = get_memento(pos + 1);
+  uint64_t p1 = 0;
+  uint64_t p2 = 0;
+  if (metadata_->payload_bits > 0) {
+    p1 = get_slot_payload(pos);
+    p2 = get_slot_payload(pos + 1);
+  }
+  const uint64_t memento_bits = metadata_->memento_bits;
+  const uint64_t max_memento_value = BITMASK(memento_bits);
+
+  if (f1 <= f2 || is_runend(pos)) {
+    for (uint32_t i = 0; i < memento_cnt; i++) {
+      if (m1 == mementos[i] && p1 == payload) {
+        handled[i] = true;
+        *old_slot_count = 1;
+        *new_slot_count = 0;
+        return 1;
+      }
+    }
+    *new_slot_count = -1;
+    return 0;
+  }
+
+  *old_slot_count = 2;
+  uint64_t old_memento_cnt = 2, old_unary_cnt = 0;
+  uint64_t data = 0;
+  uint64_t filled_bits = 0;
+  uint64_t data_bit_pos = ((pos + 2) % slots_per_block_) * metadata_->bits_per_slot;
+  uint64_t data_block_ind = (pos + 2) / slots_per_block_;
+  GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
+                              data_bit_pos, data_block_ind);
+  if (m1 >= m2) {
+    old_memento_cnt += data & max_memento_value;
+    data >>= memento_bits;
+    filled_bits -= memento_bits;
+    *old_slot_count = number_of_slots_used_for_memento_list(pos + 2) + 2;
+    if (old_memento_cnt == max_memento_value + 2) {
+      uint64_t length = 2, pw = 1;
+      old_memento_cnt = 2;
+      old_unary_cnt = 1;
+      while (length) {
+        GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
+                                    data_bit_pos, data_block_ind);
+        const uint64_t current_fragment = data & max_memento_value;
+        if (current_fragment == max_memento_value) {
+          length++;
+          old_unary_cnt++;
+        }
+        else {
+          length--;
+          old_memento_cnt += pw * current_fragment;
+          pw *= max_memento_value;
+        }
+        data >>= memento_bits;
+        filled_bits -= memento_bits;
+      }
+    }
+  }
+
+  uint64_t res_mementos[old_memento_cnt], res_cnt = 0;
+  uint64_t res_payloads[old_memento_cnt];
+  uint32_t cmp_ind = 0;
+  // using <= so the case of same memento with different payload
+  // is handled correctly
+  uint64_t val = (m1 <= m2 ? m1 : m2);
+  uint64_t curr_payload = (m1 <= m2 ? p1 : p2);
+  int32_t newly_handled_cnt = 0;
+  // Handle the minimum
+  while (cmp_ind < memento_cnt && (handled[cmp_ind] || mementos[cmp_ind] < val)) {
+    cmp_ind++;
+  }
+  if (cmp_ind < memento_cnt && mementos[cmp_ind] == val && curr_payload == payload) {
+    handled[cmp_ind++] = true;
+    newly_handled_cnt++;
+  }
+  else {
+    res_mementos[res_cnt] = val;
+    if (metadata_->payload_bits > 0) {
+      res_payloads[res_cnt] = curr_payload;
+    }
+    res_cnt++;
+  }
+  // Handle the actual list
+  for (uint32_t i = 1; i < old_memento_cnt - 1; i++) {
+    GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits, memento_bits,
+                                data_bit_pos, data_block_ind);
+    val = data & max_memento_value;
+    data >>= memento_bits;
+    filled_bits -= memento_bits;
+    if (metadata_->payload_bits > 0) {
+      GET_NEXT_DATA_WORD_IF_EMPTY(data, filled_bits,
+                                  metadata_->payload_bits,
+                                  data_bit_pos, data_block_ind);
+      curr_payload = data & BITMASK(metadata_->payload_bits);
+      data >>= metadata_->payload_bits;
+      filled_bits -= metadata_->payload_bits;
+    }
+    while (cmp_ind < memento_cnt && (handled[cmp_ind] || mementos[cmp_ind] < val)) {
+      cmp_ind++;
+    }
+    if (cmp_ind < memento_cnt && mementos[cmp_ind] == val && curr_payload == payload) {
+      handled[cmp_ind++] = true;
+      newly_handled_cnt++;
+    }
+    else {
+      res_mementos[res_cnt] = val;
+      if (metadata_->payload_bits > 0) {
+        res_payloads[res_cnt] = curr_payload;
+      }
+      res_cnt++;
+    }
+  }
+  // Handle the maximum - in the case of m1==m2 it will return m2 in this case
+  // and m1 for the minimum
+  val = (m1 <= m2 ? m2 : m1);
+  curr_payload = (m1 <= m2 ? p2 : p1);
+  while (cmp_ind < memento_cnt && (handled[cmp_ind] || mementos[cmp_ind] < val)) {
+    cmp_ind++;
+  }
+  if (cmp_ind < memento_cnt && mementos[cmp_ind] == val && curr_payload == payload) {
+    handled[cmp_ind++] = true;
+    newly_handled_cnt++;
+  }
+  else {
+    res_mementos[res_cnt] = val;
+    if (metadata_->payload_bits > 0) {
+      res_payloads[res_cnt] = curr_payload;
+    }
+    res_cnt++;
+  }
+
+  if (res_cnt != old_memento_cnt) {
+    // Something changed
+    *new_slot_count = res_cnt ? write_prefix_set(pos, f1, res_mementos, res_cnt, res_payloads) : 0;
+  }
+  else {
+    // Nothing changed
+    *new_slot_count = -1;
+  }
+
+  return newly_handled_cnt;
+}
 
 template <bool expandable>
 inline int32_t Memento<expandable>::remove_mementos_from_prefix_set(const uint64_t pos, const uint64_t *mementos,
@@ -3794,6 +3988,108 @@ inline void Memento<expandable>::bulk_load(uint64_t *sorted_hashes, uint64_t n, 
     modify_metadata(&metadata_->ndistinct_elts, distinct_prefix_cnt);
     modify_metadata(&metadata_->noccupied_slots, total_slots_written);
     modify_metadata(&metadata_->nelts, n);
+}
+
+template <bool expandable>
+inline int32_t Memento<expandable>::delete_single_by_payload(uint64_t key, uint64_t memento, uint8_t flags, uint64_t payload) {
+  memento = (metadata_->memento_bits > 0 ? memento : 0);
+  // first acquire a read lock on the entire filter to avoid issues with expansion
+  std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
+  if (GET_KEY_HASH(flags) != flag_key_is_hash) {
+    if (metadata_->hash_mode == hashmode::Default)
+      key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+    else if (metadata_->hash_mode == hashmode::Invertible) // Large hash!
+      key = hash_64(key, BITMASK(63));
+  }
+  const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
+  const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
+  const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
+                                                     - metadata_->fingerprint_bits
+                                                     - metadata_->original_quotient_bits);
+  const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size))
+                                                  << (32 - orig_quotient_size)), orig_nslots);
+  key &= ~(BITMASK(metadata_->original_quotient_bits));
+  key |= fast_reduced_part;
+  uint64_t hash = key;
+  const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
+                                     | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+  const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits))
+                                    | (static_cast<uint64_t>(expandable) << metadata_->fingerprint_bits);
+
+  if (GET_NO_LOCK(flags) != flag_no_lock) {
+    if (!memento_lock(hash_bucket_index, /* reverse */ true, flags))
+      return err_couldnt_lock;
+  }
+
+  bool handled = false;
+  const int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(hash_bucket_index - 1) + 1;
+  int64_t fingerprint_pos = runstart_index;
+  uint64_t matching_positions[50], ind = 0;
+  while (true) {
+    fingerprint_pos = next_matching_fingerprint_in_run(fingerprint_pos, hash_fingerprint);
+    if (fingerprint_pos < 0) {
+      // Matching fingerprints exhausted
+      break;
+    }
+    matching_positions[ind++] = fingerprint_pos;
+    const uint64_t current_fingerprint = get_fingerprint(fingerprint_pos);
+    const uint64_t next_fingerprint = get_fingerprint(fingerprint_pos + 1);
+    if (!is_runend(fingerprint_pos) && current_fingerprint > next_fingerprint) {
+      const uint64_t m1 = get_memento(fingerprint_pos);
+      const uint64_t m2 = get_memento(fingerprint_pos + 1);
+      fingerprint_pos += 2;
+      if (m1 >= m2)
+        fingerprint_pos += number_of_slots_used_for_memento_list(fingerprint_pos);
+    }
+    else {
+      fingerprint_pos++;
+    }
+
+    if (is_runend(fingerprint_pos - 1))
+      break;
+  }
+
+  // assert the bucket for the last matching position
+  if (ind > 0) {
+    assertBucketLocation(hash_bucket_index, matching_positions[ind - 1]);
+  }
+
+  if (metadata_->memento_bits == 0) {
+    const bool only_item_in_run = is_runend(runstart_index);
+    if (ind > 0) {
+      remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
+                                                                hash_bucket_index,
+                                                                matching_positions[ind - 1],
+                                                                1);
+      handled = true;
+    }
+  }
+  else {
+    for (int32_t i = ind - 1; i >= 0; i--) {
+      int32_t old_slot_count, new_slot_count;
+      remove_mementos_from_prefix_set_by_payload(matching_positions[i], &memento, &handled,
+                                      1, &new_slot_count, &old_slot_count, payload);
+      if (handled) {
+        if (new_slot_count < old_slot_count) {
+          const bool only_item_in_run = is_runend(runstart_index);
+          remove_slots_and_shift_remainders_and_runends_and_offsets(only_item_in_run,
+                                                                    hash_bucket_index,
+                                                                    matching_positions[i] + new_slot_count,
+                                                                    old_slot_count - new_slot_count);
+        }
+        break;
+      }
+    }
+  }
+
+  if (handled)
+    modify_metadata(&metadata_->nelts, -1);
+
+  if (GET_NO_LOCK(flags) != flag_no_lock) {
+    memento_unlock(hash_bucket_index, /* reverse */ true);
+  }
+
+  return handled ? 0 : err_doesnt_exist;
 }
 
 template <bool expandable>
