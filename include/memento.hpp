@@ -961,6 +961,8 @@ public:
         uint64_t get_memento();
         uint64_t get_curr_prefix();
         uint64_t get_payload();
+        std::vector<uint64_t> get_current_prefix_payloads();
+        std::vector<uint64_t> get_current_prefix_mementos();
         iterator& operator++();
         iterator operator++(int);
         bool operator==(const iterator& rhs) const;
@@ -4916,6 +4918,12 @@ inline uint64_t Memento<expandable>::iterator::get_curr_prefix() { return cur_pr
 
 template <bool expandable>
 inline uint64_t Memento<expandable>::iterator::get_payload() { return payloads_[cur_ind_]; }
+
+template <bool expandable>
+inline std::vector<uint64_t> Memento<expandable>::iterator::get_current_prefix_payloads() { return payloads_; }
+
+template <bool expandable>
+inline std::vector<uint64_t> Memento<expandable>::iterator::get_current_prefix_mementos() { return mementos_; }
 
 template <bool expandable>
 inline uint64_t Memento<expandable>::iterator::operator*() {
