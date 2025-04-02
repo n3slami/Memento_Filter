@@ -3420,7 +3420,7 @@ template <bool expandable>
 inline Memento<expandable>::Memento(char *src) {
     // get the total size to deserialize
     qfmetadata *metadata = reinterpret_cast<qfmetadata *>(src);
-    uint32_t total_num_bytes = metadata->total_size_in_bytes;
+    uint64_t total_num_bytes = metadata->total_size_in_bytes;
     uint8_t *buffer = new uint8_t[total_num_bytes]{};
     memcpy(buffer, src, total_num_bytes);
 
