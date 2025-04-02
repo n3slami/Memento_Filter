@@ -70,6 +70,7 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
  * the content of the slots.                                      *
  ******************************************************************/
 
+#define NUM_REGIONS_TO_LOCK 50
 #define MAX_VALUE(nbits) ((1ULL << (nbits)) - 1)
 #define BITMASK(nbits) ((nbits) == 64 ? 0XFFFFFFFFFFFFFFFF : MAX_VALUE(nbits))
 #define METADATA_WORD(field, slot_index) (get_block((slot_index) / \
@@ -536,17 +537,17 @@ public:
     }
 
     // given a base bucket index and the modify index checks whether the modify index is within
-    // 2 regions of the base bucket index and if not fails the execution.
-    // The reason for that is because we lock only 2 consecutive regions at a time for inserts and deletes.
+    // NUM_REGIONS_TO_LOCK regions of the base bucket index and if not fails the execution.
+    // The reason for that is because we lock only NUM_REGIONS_TO_LOCK consecutive regions at a time for inserts and deletes.
     static bool assertBucketLocation(const uint64_t base_bucket_index, const uint64_t modify_index,
-                                         const uint64_t num_regions_locked_by_default = 2) {
+                                         const uint64_t num_regions_locked_by_default = NUM_REGIONS_TO_LOCK) {
       uint64_t base_bucket_index_region = base_bucket_index / num_slots_to_lock_;
       uint64_t hash_bucket_index_to_lock = modify_index / num_slots_to_lock_;
       // check if the difference in absolute value between the base bucket index region
-      // and the modify index region is bigger than 2 if so fail the execution.
+      // and the modify index region is bigger than NUM_REGIONS_TO_LOCK if so fail the execution.
       uint64_t diff = std::abs(static_cast<int64_t>(base_bucket_index_region) - static_cast<int64_t>(hash_bucket_index_to_lock));
 
-      // If the difference is greater than 2, fail the execution
+      // If the difference is greater than NUM_REGIONS_TO_LOCK, fail the execution
       if (diff >= num_regions_locked_by_default) {
         std::cerr << "Execution failed: Difference between bucket regions exceeds 2!" << std::endl;
         // log details
@@ -568,7 +569,7 @@ private:
     static constexpr uint32_t slots_per_block_ = 1ULL << block_offset_bits_;
     static constexpr uint32_t metadata_words_per_block_ = (slots_per_block_ + 63) / 64;
 
-    static constexpr uint64_t num_slots_to_lock_ = 1ULL << 16;
+    static constexpr uint64_t num_slots_to_lock_ = 1ULL << 12;
     static constexpr uint64_t cluster_size_ = 1ULL << 14;
 
     static constexpr uint32_t distance_from_home_slot_cutoff_ = 1000;
@@ -1089,7 +1090,7 @@ private:
      * otherwise.
      */
     bool memento_lock(uint64_t hash_bucket_index, bool reverse,
-                      uint8_t lock_flag, uint32_t num_regions_to_lock = 2);
+                      uint8_t lock_flag, uint32_t num_regions_to_lock = NUM_REGIONS_TO_LOCK);
 
     /**
      * Unlock the portion of the filter indicated by `hash_bucket_index`.
@@ -1100,7 +1101,7 @@ private:
      * @param num_regions_to_unlock - The number of regions to unlock.
      */
     void memento_unlock(uint64_t hash_bucket_index, bool reverse,
-                        uint32_t num_regions_to_unlock = 2);
+                        uint32_t num_regions_to_unlock = NUM_REGIONS_TO_LOCK);
 
 
     /**
@@ -3743,11 +3744,6 @@ inline int32_t Memento<expandable>::insert_mementos(uint64_t key, uint64_t memen
 	uint64_t hash = key;
 	int32_t ret = insert_mementos(hash, mementos, memento_count, metadata_->fingerprint_bits, flags, payloads);
 
-    // Check for fullness based on the distance from the home slot to the slot
-    // in which the key is inserted
-	if (ret > (int32_t) distance_from_home_slot_cutoff_ && metadata_->auto_resize) {
-        resize(metadata_->nslots * 2);
-	}
 	return ret;
 }
 
