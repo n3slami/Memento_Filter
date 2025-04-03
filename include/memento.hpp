@@ -70,7 +70,7 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
  * the content of the slots.                                      *
  ******************************************************************/
 
-#define NUM_REGIONS_TO_LOCK 2
+#define NUM_REGIONS_TO_LOCK 10
 #define MAX_VALUE(nbits) ((1ULL << (nbits)) - 1)
 #define BITMASK(nbits) ((nbits) == 64 ? 0XFFFFFFFFFFFFFFFF : MAX_VALUE(nbits))
 #define METADATA_WORD(field, slot_index) (get_block((slot_index) / \
@@ -539,7 +539,7 @@ public:
     // given a base bucket index and the modify index checks whether the modify index is within
     // NUM_REGIONS_TO_LOCK regions of the base bucket index and if not fails the execution.
     // The reason for that is because we lock only NUM_REGIONS_TO_LOCK consecutive regions at a time for inserts and deletes.
-    static bool assertBucketLocation(const uint64_t base_bucket_index, const uint64_t modify_index,
+    bool assertBucketLocation(const uint64_t base_bucket_index, const uint64_t modify_index,
                                          const uint64_t num_regions_locked_by_default = NUM_REGIONS_TO_LOCK) {
       uint64_t base_bucket_index_region = base_bucket_index / num_slots_to_lock_;
       uint64_t hash_bucket_index_to_lock = modify_index / num_slots_to_lock_;
@@ -555,6 +555,9 @@ public:
         std::cerr << "Modify index: " << modify_index << std::endl;
         std::cerr << "Base bucket index region: " << base_bucket_index_region << std::endl;
         std::cerr << "Modify index region: " << hash_bucket_index_to_lock << std::endl;
+        // log the size of the filter and the number of occuiped slots
+        std::cerr << "Filter size: " << metadata_->nslots << std::endl;
+        std::cerr << "Occupied slots: " << metadata_->noccupied_slots << std::endl;
         exit(1);  // Uncomment this if you want to terminate the program
       }
       return true;
@@ -1454,10 +1457,13 @@ inline bool Memento<expandable>::memento_lock(uint64_t hash_bucket_index, bool r
     // to avoid deadlocks with concurrent inserts
     uint32_t left_to_lock = num_regions_to_lock;
     if (reverse) {
+      //  +1 to also lock the region after the current region
+      // this is for the case where the deleted slot cluster is right need the end of this slot
+        left_to_lock += 1;
         int32_t region_to_lock = (hash_bucket_index / num_slots_to_lock_) - num_regions_to_lock + 1;
         while(left_to_lock > 0) {
             // if we overflow with the regions no need to lock
-            if (region_to_lock < 0) {
+            if (region_to_lock < 0 || (uint32_t)region_to_lock >= runtimedata_->num_locks) {
                 // we should continue because there might be some we do need to lock
                 region_to_lock += 1;
                 left_to_lock--;
@@ -1513,6 +1519,8 @@ inline void Memento<expandable>::memento_unlock(uint64_t hash_bucket_index, bool
     // we unlock in the reverse order we acquired
     if (reverse) {
         region_to_unlock = hash_bucket_index / num_slots_to_lock_;
+        //  +1 to also unlock the region after the current region
+        left_to_unlock += 1;
     } else {
         region_to_unlock = (hash_bucket_index / num_slots_to_lock_ + num_regions_to_unlock) - 1;
     }
