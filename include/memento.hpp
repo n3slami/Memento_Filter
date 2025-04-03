@@ -2013,8 +2013,10 @@ inline int32_t Memento<expandable>::make_empty_slot_for_memento_list(uint64_t bu
     if (next_empty >= metadata_->xnslots) {  // Check that the new data fits
         return err_no_space;
     }
-    if (pos < next_empty)
-        shift_slots(pos, next_empty - 1, 1);
+    if (pos < next_empty) {
+      assertBucketLocation(bucket_index, next_empty);
+      shift_slots(pos, next_empty - 1, 1);
+    }
     shift_runends(pos - 1, next_empty - 1, 1);
     for (uint32_t i = bucket_index / slots_per_block_ + 1;
             i <= next_empty / slots_per_block_; i++) {
@@ -2038,13 +2040,16 @@ inline int32_t Memento<expandable>::make_n_empty_slots_for_memento_list(uint64_t
     uint64_t shift_distance = 0;
     for (int i = empty_runs_ind - 2; i >= 2; i -= 2) {
         shift_distance += empty_runs[i + 1];
+        assertBucketLocation(bucket_index, empty_runs[i] - 1 + shift_distance);
         shift_slots(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1,
                 shift_distance);
         shift_runends(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1,
                 shift_distance);
     }
-    if (pos < empty_runs[0])
-        shift_slots(pos, empty_runs[0] - 1, n);
+    if (pos < empty_runs[0]) {
+      assertBucketLocation(bucket_index, empty_runs[0] - 1 + n);
+      shift_slots(pos, empty_runs[0] - 1, n);
+    }
     shift_runends(pos - 1, empty_runs[0] - 1, n);
     // Update offsets
     uint64_t npreceding_empties = 0;
@@ -3326,7 +3331,8 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
     uint64_t shift_distance = 0;
     for (int i = empty_runs_ind - 2; i >= 2; i -= 2) {
         shift_distance += empty_runs[i + 1];
-        assertBucketLocation(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1);
+        // make sure that the target bucket is within the locked areas
+        assertBucketLocation(hash_bucket_index, empty_runs[i] - 1 + shift_distance);
         shift_slots(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1, shift_distance);
         shift_runends(empty_runs[i - 2] + empty_runs[i - 1], empty_runs[i] - 1, shift_distance);
     }
@@ -3374,6 +3380,7 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
         assertBucketLocation(hash_bucket_index, insert_index);
 
         if (insert_index < empty_runs[0]) {
+            assertBucketLocation(hash_bucket_index, empty_runs[0] - 1 + new_slot_count);
             shift_slots(insert_index, empty_runs[0] - 1, new_slot_count);
             shift_runends(insert_index, empty_runs[0] - 1, new_slot_count);
         }
@@ -3387,8 +3394,7 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
         else {
             insert_index = runend_index + 1;
             if (insert_index < empty_runs[0]) {
-                assertBucketLocation(hash_bucket_index, insert_index);
-                assertBucketLocation(hash_bucket_index, empty_runs[0] - 1);
+                assertBucketLocation(hash_bucket_index, empty_runs[0] - 1 + new_slot_count);
                 shift_slots(insert_index, empty_runs[0] - 1, new_slot_count);
                 shift_runends(insert_index, empty_runs[0] - 1, new_slot_count);
             }
@@ -3858,9 +3864,9 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
             const uint64_t next_empty_slot = find_first_empty_slot(hash_bucket_index);
             assert(next_empty_slot >= insert_index);
             assertBucketLocation(hash_bucket_index, insert_index);
-            assertBucketLocation(hash_bucket_index, next_empty_slot);
 
             if (insert_index < next_empty_slot) {
+              assertBucketLocation(hash_bucket_index, next_empty_slot);
                 shift_slots(insert_index, next_empty_slot - 1, 1);
                 shift_runends(insert_index, next_empty_slot - 1, 1);
             }
@@ -3891,6 +3897,7 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
             insert_index = runend_index + 1;
             assertBucketLocation(hash_bucket_index, insert_index);
             if (insert_index < next_empty_slot) {
+              assertBucketLocation(hash_bucket_index, next_empty_slot);
                 shift_slots(insert_index, next_empty_slot - 1, 1);
                 shift_runends(insert_index, next_empty_slot - 1, 1);
             }
