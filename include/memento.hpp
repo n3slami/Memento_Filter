@@ -70,7 +70,7 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
  * the content of the slots.                                      *
  ******************************************************************/
 
-#define NUM_REGIONS_TO_LOCK 10
+#define NUM_REGIONS_TO_LOCK 20
 #define MAX_VALUE(nbits) ((1ULL << (nbits)) - 1)
 #define BITMASK(nbits) ((nbits) == 64 ? 0XFFFFFFFFFFFFFFFF : MAX_VALUE(nbits))
 #define METADATA_WORD(field, slot_index) (get_block((slot_index) / \
@@ -1518,8 +1518,8 @@ inline void Memento<expandable>::memento_unlock(uint64_t hash_bucket_index, bool
     int32_t region_to_unlock;
     // we unlock in the reverse order we acquired
     if (reverse) {
-        region_to_unlock = hash_bucket_index / num_slots_to_lock_;
-        //  +1 to also unlock the region after the current region
+      //  +1 to also unlock the region after the current region
+        region_to_unlock = hash_bucket_index / num_slots_to_lock_ + 1;
         left_to_unlock += 1;
     } else {
         region_to_unlock = (hash_bucket_index / num_slots_to_lock_ + num_regions_to_unlock) - 1;
