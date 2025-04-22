@@ -549,7 +549,7 @@ public:
 
       // If the difference is greater than NUM_REGIONS_TO_LOCK, fail the execution
       if (diff >= num_regions_locked_by_default) {
-        std::cerr << "Execution failed: Difference between bucket regions exceeds 2!" << std::endl;
+        std::cerr << "Execution failed: Difference between bucket regions exceeds " << num_regions_locked_by_default << std::endl;
         // log details
         std::cerr << "Base bucket index: " << base_bucket_index << std::endl;
         std::cerr << "Modify index: " << modify_index << std::endl;
@@ -930,6 +930,9 @@ public:
         bool operator!=(const hash_iterator& rhs) const;
         int32_t get(uint64_t& key, std::vector<uint64_t>* mementos,
                     std::vector<uint64_t>* payloads = nullptr) const;
+        uint64_t get_current_slot() const {
+            return current_;
+        }
 
     private:
         bool is_at_runend() const;
@@ -1049,35 +1052,6 @@ public:
                             const uint32_t actual_fingerprint_size, uint8_t runtime_lock,
                             uint64_t payloads[] = nullptr);
 
-private:
-    qfruntime *runtimedata_;
-    qfmetadata *metadata_;
-    qfblock *blocks_;
-
-    /**
-     * Try to acquire a lock once and return even if the lock is busy. If spin
-     * flag is set, then spin until the lock is available.
-     *
-     * @param lock - The lock to acquire.
-     * @param flags - Flags determining the filter's behavior under
-     * concurrency, as well as if `key` is already hashed or not. If
-     * `flag_wait_for_lock` is set to 1, the thread spins. Otherwise, it tries to
-     * acquire the lock once.
-     * @returns `true` if `lock` was successfully acquired and `false`
-     * otherwise.
-     */
-    bool spin_lock(volatile int *lock, uint8_t flag);
-
-    /**
-     * Unlock the acquired lock.
-     *
-     * @param lock - The lock to unlock.
-     */
-    void spin_unlock(volatile int *lock) {
-        __sync_lock_release(lock);
-        return;
-    }
-
     /**
      * Lock the portion of the filter indicated by `hash_bucket_index`.
      *
@@ -1106,6 +1080,34 @@ private:
     void memento_unlock(uint64_t hash_bucket_index, bool reverse,
                         uint32_t num_regions_to_unlock = NUM_REGIONS_TO_LOCK);
 
+private:
+    qfruntime *runtimedata_;
+    qfmetadata *metadata_;
+    qfblock *blocks_;
+
+    /**
+     * Try to acquire a lock once and return even if the lock is busy. If spin
+     * flag is set, then spin until the lock is available.
+     *
+     * @param lock - The lock to acquire.
+     * @param flags - Flags determining the filter's behavior under
+     * concurrency, as well as if `key` is already hashed or not. If
+     * `flag_wait_for_lock` is set to 1, the thread spins. Otherwise, it tries to
+     * acquire the lock once.
+     * @returns `true` if `lock` was successfully acquired and `false`
+     * otherwise.
+     */
+    bool spin_lock(volatile int *lock, uint8_t flag);
+
+    /**
+     * Unlock the acquired lock.
+     *
+     * @param lock - The lock to unlock.
+     */
+    void spin_unlock(volatile int *lock) {
+        __sync_lock_release(lock);
+        return;
+    }
 
     /**
      * Add `cnt` to a metadata value.
