@@ -4022,7 +4022,6 @@ inline int32_t Memento<expandable>::delete_single_by_payload(uint64_t key, uint6
     key &= ~(BITMASK(metadata_->original_quotient_bits));
     key |= fast_reduced_part;
   }
-  uint64_t hash = key;
   // first acquire a read lock on the entire filter to avoid issues with expansion
   std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
   int64_t fingerprint_size = memento::highbit_position(key) -
