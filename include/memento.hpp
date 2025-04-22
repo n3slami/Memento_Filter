@@ -5059,6 +5059,12 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
         return it;
     }
 
+    // for empty filter we can return immediately
+    if (metadata_->noccupied_slots == 0) {
+            it.current_ = 0XFFFFFFFFFFFFFFFF;
+            return it;
+    }
+
     it.num_clusters_ = 0;
 
     if (GET_KEY_HASH(flags) != flag_key_is_hash) {
