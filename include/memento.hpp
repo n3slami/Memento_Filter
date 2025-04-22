@@ -784,22 +784,22 @@ public:
     int32_t delete_single(uint64_t key, uint64_t memento, uint8_t flags);
 
     /**
-     * Delete a single hash from Memento filter. The provided hash is deleted
+     * Delete a single key from Memento filter. The provided key is deleted
      * from the keepsake box with the longest matching fingerprint to avoid
      * false-positives. The deletion is done only if it matches the given payload.
      *
-     * @param hash - The input hash's prefix.
-     * @param hash - The input hash's memento.
+     * @param key - The input key's prefix.
+     * @param key - The input key's memento.
      * @param flags - Flags determining the filter's behavior under
      * concurrency, as well as if the prefix is already hashed or not. If
      * `flag_wait_for_lock` is set to 1, the thread spins. Otherwise, it tries to
      * acquire the lock once.
-     * @returns == 0: the hash was successfully deleted.
-     *          == `err_doesnt_exist`: there was no matching hash in the filter.
+     * @returns == 0: the key was successfully deleted.
+     *          == `err_doesnt_exist`: there was no matching key in the filter.
      *          == `err_couldnt_lock`: `flag_try_once_lock` has failed to acquire
      *                                 the lock.
      */
-    int32_t delete_single_by_payload(uint64_t hash, uint64_t memento, uint8_t flags, uint64_t payload);
+    int32_t delete_single_by_payload(uint64_t key, uint64_t memento, uint8_t flags, uint64_t payload);
 
     /** 
      * Checks Memento filter for the existence of the point corresponding to
@@ -4003,19 +4003,34 @@ inline void Memento<expandable>::bulk_load(uint64_t *sorted_hashes, uint64_t n, 
 }
 
 template <bool expandable>
-inline int32_t Memento<expandable>::delete_single_by_payload(uint64_t hash, uint64_t memento, uint8_t flags, uint64_t payload) {
+inline int32_t Memento<expandable>::delete_single_by_payload(uint64_t key, uint64_t memento, uint8_t flags, uint64_t payload) {
   memento = (metadata_->memento_bits > 0 ? memento : 0);
+  const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
+  const uint64_t orig_nslots = metadata_->nslots >> (metadata_->key_bits
+                                                     - metadata_->fingerprint_bits
+                                                     - metadata_->original_quotient_bits);
+  if (GET_KEY_HASH(flags) != flag_key_is_hash) {
+    if (metadata_->hash_mode == hashmode::Default)
+      key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+    else if (metadata_->hash_mode == hashmode::Invertible) // Large key!
+      key = hash_64(key, BITMASK(63));
+
+    const uint64_t fast_reduced_part = fast_reduce(((key & BITMASK(orig_quotient_size))
+                                                    << (32 - orig_quotient_size)), orig_nslots);
+    key &= ~(BITMASK(metadata_->original_quotient_bits));
+    key |= fast_reduced_part;
+  }
+  uint64_t hash = key;
   // first acquire a read lock on the entire filter to avoid issues with expansion
   std::shared_lock<std::shared_mutex> shared_lock(runtimedata_->rw_lock);
-  int64_t fingerprint_size = memento::highbit_position(hash) -
+  int64_t fingerprint_size = memento::highbit_position(key) -
                              metadata_->key_bits +
                              metadata_->fingerprint_bits;
   const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
-  const uint64_t hash_fingerprint = ((hash >> bucket_index_hash_size) & BITMASK(fingerprint_size))
+  const uint64_t hash_fingerprint = ((key >> bucket_index_hash_size) & BITMASK(fingerprint_size))
                                     | (static_cast<uint64_t>(expandable) << fingerprint_size);
-  const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
-  const uint64_t hash_bucket_index = ((hash & BITMASK(orig_quotient_size)) << (bucket_index_hash_size - orig_quotient_size))
-                                     | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+  const uint64_t hash_bucket_index = ((key & BITMASK(orig_quotient_size)) << (bucket_index_hash_size - orig_quotient_size))
+                                     | ((key >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
 
   if (GET_NO_LOCK(flags) != flag_no_lock) {
     if (!memento_lock(hash_bucket_index, /* reverse */ true, flags))
