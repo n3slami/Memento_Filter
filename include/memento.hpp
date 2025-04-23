@@ -5082,7 +5082,10 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
     const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
 
-    // if the filter doesn't contain this key we can return immediately
+    // This a mode where we know we are looking for the exact prefix/key so we
+    // we short circuit by checking that the bucket that should contain the key
+    // is not empty
+    // if the filter the cannonical bucket is not occupied we can return empty
     if (!is_occupied(hash_bucket_index) &&
         GET_EXACT_RANGE_START(flags) == flag_exact_range_start) {
         it.current_ = 0XFFFFFFFFFFFFFFFF;
