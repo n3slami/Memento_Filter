@@ -80,6 +80,7 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
 #define GET_TRY_ONCE_LOCK(flag) (flag & flag_try_once_lock)
 #define GET_WAIT_FOR_LOCK(flag) (flag & flag_wait_for_lock)
 #define GET_KEY_HASH(flag) (flag & flag_key_is_hash)
+#define GET_EXACT_RANGE_START(flag) (flag & flag_exact_range_start)
 
 #define REMAINDER_WORD(i) (reinterpret_cast<uint64_t *>(&(get_block((i) / metadata_->bits_per_slot)->slots[8 * ((i) % metadata_->bits_per_slot)])))
 
@@ -485,6 +486,7 @@ public:
     static constexpr uint8_t flag_try_once_lock = 0x02;
     static constexpr uint8_t flag_wait_for_lock = 0x04;
     static constexpr uint8_t flag_key_is_hash = 0x08; // It is sometimes useful to insert a key that has already been hashed.
+    static constexpr uint8_t flag_exact_range_start = 0x10; // when using range whether we expect the start key to exist
 
     static constexpr uint32_t preallocate_size_for_prefix_mementos = 10;
 
@@ -5059,12 +5061,6 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
         return it;
     }
 
-    // for empty filter we can return immediately
-    if (metadata_->noccupied_slots == 0) {
-            it.current_ = 0XFFFFFFFFFFFFFFFF;
-            return it;
-    }
-
     it.num_clusters_ = 0;
 
     if (GET_KEY_HASH(flags) != flag_key_is_hash) {
@@ -5085,6 +5081,13 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
     const uint64_t hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
         | ((hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
     const uint64_t hash_fingerprint = (hash >> bucket_index_hash_size) & BITMASK(metadata_->fingerprint_bits);
+
+    // if the filter doesn't contain this key we can return immediately
+    if (!is_occupied(hash_bucket_index) &&
+        GET_EXACT_RANGE_START(flags) == flag_exact_range_start) {
+        it.current_ = 0XFFFFFFFFFFFFFFFF;
+        return it;
+    }
 
     bool target_found = false;
     // If a run starts at "position" move the iterator to point it to the
