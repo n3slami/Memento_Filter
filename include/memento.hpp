@@ -951,7 +951,6 @@ public:
     class iterator {
         friend class Memento;
     public:
-        iterator(Memento<expandable>& filter, const uint64_t l_key, const uint64_t r_key, const uint8_t flags = 0);
         iterator(Memento<expandable> &filter, const uint64_t l_prefix,
                  const uint64_t l_memento, const uint64_t r_prefix,
                  const uint64_t r_memento, const uint8_t flags);
@@ -981,9 +980,10 @@ public:
         void fetch_matching_prefix_mementos(bool reinit_hash_it=true);
 
         Memento& filter_;
-        uint64_t l_key_;
-        uint64_t r_key_;
         uint64_t cur_prefix_ = 0;
+        uint64_t cur_memento_ = 0;
+        uint64_t r_prefix_ = 0;
+        uint64_t r_memento_ = 0;
         Memento::hash_iterator it_;
         uint64_t cur_ind_ = 0;
         std::vector<uint64_t> mementos_;
@@ -995,14 +995,12 @@ public:
      * Initialize a key iterator returning keys in the range from `l_key` to
      * `r_key`, inclusive.
      *
-     * @param l_key - The left end-point of the iteration range.
-     * @param r_key - The right end-point of the iteration range.
+     * @param l_prefix - The left end-point of the iteration range.
+     * @param l_memento - The memento of the left end-point of the iteration
+     * @param r_prefix - The right end-point of the iteration range.
+     * @param r_memento - The memento of the right end-point of the iteration
      * @returns The corresponding iterator.
      */
-	iterator begin(uint64_t l_key=0,
-                   uint64_t r_key = std::numeric_limits<uint64_t>::max(),
-                   uint8_t flags = Memento::flag_no_lock);
-
     iterator begin(uint64_t l_prefix, uint64_t l_memento, uint64_t r_prefix,
                    uint64_t r_memento, uint8_t flags);
 
@@ -1024,12 +1022,12 @@ public:
      * a keepsake box whose prefix hash is greater than or equal to the
      * specified key pair.
      *
-	 * @param key - The prefix.
+     * @param key_prefix - The prefix.
      * @param flags - Flags determining the filter's behavior under
      * concurrency, as well as if `key` is already hashed or not.
      * @returns The corresponding iterator.
 	 */
-    hash_iterator hash_begin(uint64_t key, uint8_t flags) const;
+    hash_iterator hash_begin(uint64_t key_prefix, uint8_t flags) const;
 
     hash_iterator hash_end() const;
 
@@ -4707,56 +4705,22 @@ inline typename Memento<expandable>::iterator Memento<expandable>::begin(const u
 }
 
 template <bool expandable>
-inline typename Memento<expandable>::iterator Memento<expandable>::begin(uint64_t l_key, uint64_t r_key,
-                                                                         uint8_t flags) {
-    return iterator(*this, l_key, r_key, flags);
-}
-
-
-template <bool expandable>
 inline typename Memento<expandable>::iterator Memento<expandable>::end() {
     return iterator(*this);
 }
 
 template <bool expandable>
-inline Memento<expandable>::iterator::iterator(Memento<expandable> &filter,
-                                   const uint64_t l_prefix,
-                                   const uint64_t l_memento,
-                                   const uint64_t r_prefix,
-                                   const uint64_t r_memento,
-                                   const uint8_t flags)
-    : filter_{filter},
-      l_key_{(l_prefix << filter.get_num_memento_bits()) | l_memento},
-      r_key_{(r_prefix << filter.get_num_memento_bits()) | r_memento},
-      cur_prefix_{l_prefix},
-      it_{filter},
-      cur_ind_{0},
-      flags_{flags} {
-  mementos_.reserve(preallocate_size_for_prefix_mementos);
-  if (filter.metadata_->payload_bits > 0) {
-    payloads_.reserve(preallocate_size_for_prefix_mementos);
-  }
-  fetch_matching_prefix_mementos(true);
-  cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) -
-             mementos_.begin();
-  while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
-    cur_prefix_++;
-    fetch_matching_prefix_mementos(true);
-    cur_ind_ = 0;
-  }
-  if (cur_prefix_ > r_prefix ||
-      (cur_prefix_ == r_prefix &&
-       (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
-    cur_prefix_ = std::numeric_limits<uint64_t>::max();
-}
-
-template <bool expandable>
-inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l_key,
-                                               const uint64_t r_key, const uint8_t flags):
+inline Memento<expandable>::iterator::iterator(Memento<expandable>& filter,
+                                               const uint64_t l_prefix,
+                                               const uint64_t l_memento,
+                                               const uint64_t r_prefix,
+                                               const uint64_t r_memento,
+                                               const uint8_t flags):
         filter_{filter},
-        l_key_{l_key},
-        r_key_{r_key},
-        cur_prefix_{(l_key >> filter.get_num_memento_bits()) - 1},
+        cur_prefix_{l_prefix - 1}, // we do +1 on the do while loop
+        cur_memento_{l_memento},
+        r_prefix_{r_prefix},
+        r_memento_{r_memento},
         it_{filter},
         cur_ind_{0},
         flags_{flags} {
@@ -4765,9 +4729,6 @@ inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l
     if (filter.metadata_->payload_bits > 0) {
         payloads_.reserve(preallocate_size_for_prefix_mementos);
     }
-    const uint64_t l_memento = l_key & BITMASK(filter.get_num_memento_bits());
-    const uint64_t r_prefix = r_key >> filter.get_num_memento_bits();
-    const uint64_t r_memento = r_key & BITMASK(filter.get_num_memento_bits());
 
     // it should be safe not to lock since the is occupied is not shifted
     // so a concurrent change is not going to affect the iterator (we will discard it using sequence
@@ -4812,9 +4773,10 @@ inline Memento<expandable>::iterator::iterator(Memento& filter, const uint64_t l
 template <bool expandable>
 inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::operator=(const iterator &other) {
     assert(&filter_ == &other.filter_);
-    l_key_ = other.l_key_;
-    r_key_ = other.r_key_;
     cur_prefix_ = other.cur_prefix_;
+    cur_memento_ = other.cur_memento_;
+    r_prefix_ = other.r_prefix_;
+    r_memento_ = other.r_memento_;
     it_ = other.it_;
     cur_ind_ = other.cur_ind_;
     mementos_ = other.mementos_;
@@ -4960,21 +4922,22 @@ inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::op
         cur_ind_++;
         const uint64_t cur_key = (cur_prefix_ << filter_.get_num_memento_bits())
                                     | mementos_[cur_ind_];
-        if (cur_key > r_key_)
+        // since we support prefix+memento larger than 64 we check for overflow by comparing
+        // the prefix and than the memento
+        if (cur_prefix_ > r_prefix_ ||
+            (cur_prefix_ == r_prefix_ && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento_)))
           cur_prefix_ = std::numeric_limits<uint64_t>::max();
     }
     else {
-        const uint64_t r_prefix = r_key_ >> filter_.get_num_memento_bits();
-        const uint64_t r_memento = r_key_ & BITMASK(filter_.get_num_memento_bits());
         cur_ind_ = 0;
         do {
           cur_prefix_++;
-            if (cur_prefix_ > r_prefix)
+            if (cur_prefix_ > r_prefix_)
                 break;
             fetch_matching_prefix_mementos(true);
         } while (cur_ind_ == mementos_.size());
-        if (cur_prefix_ > r_prefix ||
-                (cur_prefix_ == r_prefix && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento)))
+        if (cur_prefix_ > r_prefix_ ||
+                (cur_prefix_ == r_prefix_ && (cur_ind_ < mementos_.size() && mementos_[cur_ind_] > r_memento_)))
             cur_prefix_ = std::numeric_limits<uint64_t>::max();
     }
     return *this;
@@ -4991,9 +4954,10 @@ inline typename Memento<expandable>::iterator Memento<expandable>::iterator::ope
 template <bool expandable>
 inline Memento<expandable>::iterator::iterator(const iterator& other):
         filter_{other.filter_},
-        l_key_{other.l_key_},
-        r_key_{other.r_key_},
         cur_prefix_{other.cur_prefix_},
+        cur_memento_{other.cur_memento_},
+        r_prefix_{other.r_prefix_},
+        r_memento_{other.r_memento_},
         it_{other.it_},
         cur_ind_{other.cur_ind_},
         mementos_{other.mementos_},
@@ -5054,9 +5018,9 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
 
 
 template <bool expandable>
-inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_begin(uint64_t key, uint8_t flags) const {
+inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_begin(uint64_t key_prefix, uint8_t flags) const {
     hash_iterator it(*this);
-    if (key >= metadata_->range) {
+    if (key_prefix >= metadata_->range) {
         it.current_ = 0XFFFFFFFFFFFFFFFF;
         return it;
     }
@@ -5065,11 +5029,11 @@ inline typename Memento<expandable>::hash_iterator Memento<expandable>::hash_beg
 
     if (GET_KEY_HASH(flags) != flag_key_is_hash) {
         if (metadata_->hash_mode == hashmode::Default)
-            key = MurmurHash64A(&key, sizeof(key), metadata_->seed);
+          key_prefix = MurmurHash64A(&key_prefix, sizeof(key_prefix), metadata_->seed);
         else if (metadata_->hash_mode == hashmode::Invertible)
-            key = hash_64(key, BITMASK(63));
+          key_prefix = hash_64(key_prefix, BITMASK(63));
     }
-    uint64_t hash = key;
+    uint64_t hash = key_prefix;
 
     const uint32_t bucket_index_hash_size = get_bucket_index_hash_size();
     const uint32_t orig_quotient_size = metadata_->original_quotient_bits;
