@@ -4741,7 +4741,7 @@ inline Memento<expandable>::iterator::iterator(Memento<expandable>& filter,
             cur_prefix_ = std::numeric_limits<uint64_t>::max();
             return;
         }
-        uint64_t cur_prefix_hash;
+        uint64_t cur_prefix_hash = 0;
         if (filter.metadata_->hash_mode == hashmode::Default)
             cur_prefix_hash = MurmurHash64A(&cur_prefix_, sizeof(cur_prefix_), filter.metadata_->seed);
         else if (filter.metadata_->hash_mode == hashmode::Invertible)
@@ -4921,8 +4921,6 @@ template <bool expandable>
 inline typename Memento<expandable>::iterator& Memento<expandable>::iterator::operator++() {
     if (cur_ind_ < mementos_.size() - 1) {
         cur_ind_++;
-        const uint64_t cur_key = (cur_prefix_ << filter_.get_num_memento_bits())
-                                    | mementos_[cur_ind_];
         // since we support prefix+memento larger than 64 we check for overflow by comparing
         // the prefix and than the memento
         if (cur_prefix_ > r_prefix_ ||
