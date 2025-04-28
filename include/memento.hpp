@@ -626,9 +626,9 @@ private:
         uint64_t bits_per_slot;
         __uint128_t range;
         uint64_t nblocks;
-        uint64_t nelts;
-        uint64_t ndistinct_elts;
-        uint64_t noccupied_slots;
+        std::atomic<uint64_t> nelts;
+        std::atomic<uint64_t> ndistinct_elts;
+        std::atomic<uint64_t> noccupied_slots;
         double expansion_threshold;
     };
 
@@ -1124,14 +1124,6 @@ private:
         return;
     }
 
-    /**
-     * Add `cnt` to a metadata value.
-     *
-     * @param metadata - The metadata value to update.
-     * @param cnt - The amount to update the metadata value by.
-     */
-    void modify_metadata(uint64_t *metadata, int32_t cnt);
-
 
     qfblock *get_block(uint64_t block_index) const {
         uint8_t *byte_ptr = reinterpret_cast<uint8_t *>(blocks_);
@@ -1536,20 +1528,6 @@ inline void Memento<expandable>::memento_unlock(uint64_t hash_bucket_index, bool
         left_to_unlock--;
     }
 }
-
-
-template <bool expandable>
-inline void Memento<expandable>::modify_metadata(uint64_t *metadata, int32_t cnt) {
-#ifdef LOG_WAIT_TIME
-    spin_lock(&runtimedata->metadata_lock, runtimedata->num_locks, flag_wait_for_lock);
-#else
-    spin_lock(&runtimedata_->metadata_lock, flag_wait_for_lock);
-#endif
-    *metadata = *metadata + cnt;
-    spin_unlock(&runtimedata_->metadata_lock);
-    return;
-}
-
 
 template <bool expandable>
 inline uint64_t Memento<expandable>::get_slot(uint64_t index) const {
@@ -2013,7 +1991,7 @@ inline int32_t Memento<expandable>::remove_slots_and_shift_remainders_and_runend
         }
     }
 
-    modify_metadata(&metadata_->noccupied_slots, -((int32_t) remove_length));
+    metadata_->noccupied_slots.fetch_sub(remove_length, std::memory_order_seq_cst);
     return ret_current_distance;
 }
 
@@ -2034,7 +2012,7 @@ inline int32_t Memento<expandable>::make_empty_slot_for_memento_list(uint64_t bu
         if (get_block(i)->offset + 1ULL <= BITMASK(8 * sizeof(blocks_[0].offset)))
             get_block(i)->offset++;
     }
-    modify_metadata(&metadata_->noccupied_slots, 1);
+    metadata_->noccupied_slots.fetch_add(1, std::memory_order_seq_cst);
     return 0;
 }
 
@@ -2094,7 +2072,7 @@ inline int32_t Memento<expandable>::make_n_empty_slots_for_memento_list(uint64_t
         else
             get_block(i)->offset = static_cast<uint8_t>(BITMASK(8 * sizeof(blocks_[0].offset)));
     }
-    modify_metadata(&metadata_->noccupied_slots, n);
+    metadata_->noccupied_slots.fetch_add(n, std::memory_order_seq_cst);
 
     return 0;
 }
@@ -3421,9 +3399,9 @@ inline int32_t Memento<expandable>::insert_mementos(const __uint128_t hash, cons
         write_prefix_set(insert_index, hash_fingerprint, mementos, memento_count);
     }
 
-    modify_metadata(&metadata_->ndistinct_elts, 1);
-    modify_metadata(&metadata_->noccupied_slots, new_slot_count);
-    modify_metadata(&metadata_->nelts, memento_count);
+    metadata_->ndistinct_elts.fetch_add(1, std::memory_order_seq_cst);
+    metadata_->noccupied_slots.fetch_add(new_slot_count, std::memory_order_seq_cst);
+    metadata_->nelts.fetch_add(memento_count, std::memory_order_seq_cst);
 
     if (GET_NO_LOCK(runtime_lock) != flag_no_lock) {
         memento_unlock(hash_bucket_index, /* reverse */ false);
@@ -3891,8 +3869,8 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
             }
             METADATA_WORD(runends, runend_index) &= ~(1ULL << ((runend_index % slots_per_block_) % 64));
             METADATA_WORD(runends, runend_index + 1) |= 1ULL << (((runend_index + 1) % slots_per_block_) % 64);
-            modify_metadata(&metadata_->ndistinct_elts, 1);
-            modify_metadata(&metadata_->noccupied_slots, 1);
+            metadata_->ndistinct_elts.fetch_add(1, std::memory_order_seq_cst);
+            metadata_->noccupied_slots.fetch_add(1, std::memory_order_seq_cst);
             res = insert_index - hash_bucket_index;
         }
     }
@@ -3925,15 +3903,15 @@ inline int64_t Memento<expandable>::insert(uint64_t key, uint64_t memento, uint8
         }
         METADATA_WORD(runends, insert_index) |= 1ULL << ((insert_index % slots_per_block_) % 64);
         METADATA_WORD(occupieds, hash_bucket_index) |= 1ULL << ((hash_bucket_index % slots_per_block_) % 64);
-        modify_metadata(&metadata_->ndistinct_elts, 1);
-        modify_metadata(&metadata_->noccupied_slots, 1);
+        metadata_->ndistinct_elts.fetch_add(1, std::memory_order_seq_cst);
+        metadata_->noccupied_slots.fetch_add(1, std::memory_order_seq_cst);
         res = insert_index - hash_bucket_index;
     }
 
     if (GET_NO_LOCK(flags) != flag_no_lock)
         memento_unlock(hash_bucket_index, /* reverse */ false);
 
-    modify_metadata(&metadata_->nelts, 1);
+    metadata_->nelts.fetch_add(1, std::memory_order_seq_cst);
     return res;
 }
 
@@ -4101,7 +4079,7 @@ inline int32_t Memento<expandable>::delete_single_by_payload(uint64_t key, uint6
   }
 
   if (handled)
-    modify_metadata(&metadata_->nelts, -1);
+    metadata_->nelts.fetch_sub(1, std::memory_order_seq_cst);
 
   if (GET_NO_LOCK(flags) != flag_no_lock) {
     memento_unlock(hash_bucket_index, /* reverse */ true);
@@ -4203,7 +4181,7 @@ inline int32_t Memento<expandable>::delete_single(uint64_t key, uint64_t memento
     }
 
     if (handled)
-        modify_metadata(&metadata_->nelts, -1);
+        metadata_->nelts.fetch_sub(1, std::memory_order_seq_cst);
 
     if (GET_NO_LOCK(flags) != flag_no_lock) {
         memento_unlock(hash_bucket_index, /* reverse */ true);
@@ -4756,6 +4734,15 @@ inline Memento<expandable>::iterator::iterator(Memento<expandable>& filter,
                                                         << (32 - orig_quotient_size)), orig_nslots);
         hash_bucket_index = (fast_reduced_part << (bucket_index_hash_size - orig_quotient_size))
                     | ((cur_prefix_hash >> orig_quotient_size) & BITMASK(bucket_index_hash_size - orig_quotient_size));
+        // This a mode where we know we are looking for the exact prefix/key so we
+        // we short circuit by checking that the bucket that should contain the key
+        // is not empty
+        // if the filter the cannonical bucket is not occupied we can return empty
+        if (!filter.is_occupied(hash_bucket_index) &&
+            GET_EXACT_RANGE_START(flags) == flag_exact_range_start) {
+          cur_prefix_ = std::numeric_limits<uint64_t>::max();
+          return;
+        }
     } while (!filter.is_occupied(hash_bucket_index));
 
     fetch_matching_prefix_mementos(true);
