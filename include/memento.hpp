@@ -71,6 +71,7 @@ static uint64_t hash_64(uint64_t key, uint64_t mask) {
  ******************************************************************/
 
 #define NUM_REGIONS_TO_LOCK 20
+#define NUM_SLOTS_IN_REGION 4096
 #define MAX_VALUE(nbits) ((1ULL << (nbits)) - 1)
 #define BITMASK(nbits) ((nbits) == 64 ? 0XFFFFFFFFFFFFFFFF : MAX_VALUE(nbits))
 #define METADATA_WORD(field, slot_index) (get_block((slot_index) / \
@@ -574,7 +575,7 @@ private:
     static constexpr uint32_t slots_per_block_ = 1ULL << block_offset_bits_;
     static constexpr uint32_t metadata_words_per_block_ = (slots_per_block_ + 63) / 64;
 
-    static constexpr uint64_t num_slots_to_lock_ = 1ULL << 12;
+    static constexpr uint64_t num_slots_to_lock_ = NUM_SLOTS_IN_REGION;
     static constexpr uint64_t cluster_size_ = 1ULL << 14;
 
     static constexpr uint32_t distance_from_home_slot_cutoff_ = 1000;
@@ -1080,6 +1081,20 @@ public:
     void memento_unlock(uint64_t hash_bucket_index, bool reverse,
                         uint32_t num_regions_to_unlock = NUM_REGIONS_TO_LOCK);
 
+    /**
+     * Counts the number of slots occupied by a memento list stored at the
+     * `pos`-th slot of the filter. Used to skip over long keepsake boxes.
+     * `pos` must point to the slot that is the start of the actual memento
+     * list, not any of the slots containing fingerprints.
+     *
+     * @param pos - The starting slot of the memento list considered. It must
+     * not point to the slot storing the fingerprint of the keepsake box, but
+     * the slot storing actual mementos.
+     * @returns The number of slots the memento list occupies.
+     */
+    __attribute__((always_inline))
+    uint64_t number_of_slots_used_for_memento_list(uint64_t pos) const;
+
 private:
     qfruntime *runtimedata_;
     qfmetadata *metadata_;
@@ -1361,20 +1376,6 @@ private:
      */
     int32_t add_memento_to_sorted_list(const uint64_t bucket_index, const uint64_t pos, uint64_t new_memento,
                                        uint64_t new_payload);
-
-    /**
-     * Counts the number of slots occupied by a memento list stored at the
-     * `pos`-th slot of the filter. Used to skip over long keepsake boxes.
-     * `pos` must point to the slot that is the start of the actual memento
-     * list, not any of the slots containing fingerprints.
-     *
-     * @param pos - The starting slot of the memento list considered. It must
-     * not point to the slot storing the fingerprint of the keepsake box, but
-     * the slot storing actual mementos.
-     * @returns The number of slots the memento list occupies.
-     */
-    __attribute__((always_inline))
-    uint64_t number_of_slots_used_for_memento_list(uint64_t pos) const;
 
     /**
      * Finds the position of the slot containing the next keepsake box with a
