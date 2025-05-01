@@ -936,6 +936,9 @@ public:
         uint64_t get_current_slot() const {
             return current_;
         }
+        uint64_t get_current_run_slot() const {
+          return run_;
+        }
 
     private:
         bool is_at_runend() const;
@@ -1453,7 +1456,7 @@ inline bool Memento<expandable>::memento_lock(uint64_t hash_bucket_index, bool r
     uint32_t left_to_lock = num_regions_to_lock;
     if (reverse) {
       //  +1 to also lock the region after the current region
-      // this is for the case where the deleted slot cluster is right need the end of this slot
+      // this is for the case where the deleted slot cluster is right near the end of this slot
         left_to_lock += 1;
         int32_t region_to_lock = (hash_bucket_index / num_slots_to_lock_) - num_regions_to_lock + 1;
         while(left_to_lock > 0) {
