@@ -4749,7 +4749,12 @@ inline Memento<expandable>::iterator::iterator(Memento<expandable>& filter,
     } while (!filter.is_occupied(hash_bucket_index));
 
     fetch_matching_prefix_mementos(true);
-    cur_ind_ = std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) - mementos_.begin();
+    // we can set the current index only for the case where we are looking in the same prefix
+    // as the right key, if we are looking at the next prefix than all values are valid and set it to true
+    // the reason they are valid is because they are within the range since we spill over to the next prefix
+    cur_ind_ = cur_prefix_ == l_prefix ?
+                                   std::lower_bound(mementos_.begin(), mementos_.end(), l_memento) -
+                                           mementos_.begin(): 0;
     while (cur_ind_ == mementos_.size() && cur_prefix_ <= r_prefix) {
         cur_prefix_++;
         fetch_matching_prefix_mementos(true);
