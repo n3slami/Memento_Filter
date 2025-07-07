@@ -908,7 +908,8 @@ generate_real_queries(std::vector<uint64_t> &keys, uint64_t n_queries, std::vect
 
 
 template <typename value_type = uint64_t>
-void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vector<int> range_size_list,
+void generate_real_dataset(const std::string& file, uint64_t n_keys, uint64_t n_queries,
+                           std::vector<int> range_size_list,
                            const uint32_t expansion_count=0, const uint64_t true_frac_cnt=0) {
     std::vector<uint64_t> ranges(range_size_list.size());
     std::transform(range_size_list.begin(), range_size_list.end(), ranges.begin(), [](auto v) {
@@ -923,6 +924,14 @@ void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vec
     std::string root_path = "./" + dir_name + "/";
     auto temp_data = read_data_binary<value_type>(file);
     auto all_data = std::vector<uint64_t>(temp_data.begin(), temp_data.end());
+
+    if (n_keys < all_data.size()) {
+        std::mt19937_64 rng(n_keys);
+        std::shuffle(all_data.begin(), all_data.end(), rng);
+        all_data.resize(n_keys);
+        std::sort(all_data.begin(), all_data.end());
+    }
+
     assert(all_data.size() > n_queries);
 
     std::cout << "[+] starting `" << dir_name << "` dataset generation" << std::endl;
@@ -1070,11 +1079,11 @@ int main(int argc, char const *argv[]) {
         for (const auto &file : *file_list)
         {
             if (file.find("uint32") != std::string::npos)
-                generate_real_dataset<uint32_t>(file, n_queries, ranges_int);
+                generate_real_dataset<uint32_t>(file, n_keys, n_queries, ranges_int);
             else if (expansion_count == 0)
-                generate_real_dataset(file, n_queries, ranges_int);
+                generate_real_dataset(file, n_keys, n_queries, ranges_int);
             else 
-                generate_real_dataset(file, n_queries, ranges_int, expansion_count, true_frac_count);
+                generate_real_dataset(file, n_keys, n_queries, ranges_int, expansion_count, true_frac_count);
         }
 
     }
