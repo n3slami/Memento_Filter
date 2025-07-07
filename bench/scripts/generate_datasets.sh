@@ -18,8 +18,18 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-if [ "$#" -ne 2 ]; then
-    echo "Illegal number of parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path>"
+if [ "$#" -ne 2 && "$#" -ne 3 ]; then
+    echo "Invalid number of parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
+fi
+if [ "$#" -eq 3 && "$3" -ne "small" ]; then
+    echo "Invalid parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
+fi
+
+N_KEYS=200000000
+N_QUERIES=10000000
+if [ "$#" -eq 3 && "$3" -eq "small" ]; then
+    N_KEYS=2000000
+    N_QUERIES=100000
 fi
 
 GRAFITE_BUILD_PATH=$(realpath $1)
@@ -46,7 +56,7 @@ generate_corr_test() {
 
   while [ $i -le 10 ]
   do
-    $WORKLOAD_GEN_PATH --mixed --kdist kuniform --qdist qcorrelated --corr-degree ${x}
+    $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform --qdist qcorrelated --corr-degree ${x}
     mv kuniform/ kuniform_${i}/
     x=$(echo $x + 0.1 | bc)
     i=$(($i + 1))
@@ -54,9 +64,9 @@ generate_corr_test() {
 }
 
 generate_true_test() {
-  #$WORKLOAD_GEN_PATH --kdist kuniform --mixed --qdist qtrue
-  #$WORKLOAD_GEN_PATH --kdist knormal --mixed --qdist qtrue
-  $WORKLOAD_GEN_PATH --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 --qdist qtrue
+  #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist kuniform --mixed --qdist qtrue
+  #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist knormal --mixed --qdist qtrue
+  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 --qdist qtrue
 }
 
 generate_constr_time_test() {
@@ -64,7 +74,7 @@ generate_constr_time_test() {
   x=100000
   while [ $i -le 8 ]
   do
-    $WORKLOAD_GEN_PATH --kdist kuniform --qdist quniform --range-size 5 -n ${x} -q $(echo "($x * 0.1)/1" | bc)
+    $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist kuniform --qdist quniform --range-size 5 -n ${x} -q $(echo "($x * 0.1)/1" | bc)
     mv kuniform/ kuniform_${i}/
     x=$(echo "$x * 10" | bc)
     i=$(($i + 1))
@@ -72,8 +82,8 @@ generate_constr_time_test() {
 }
 
 generate_memento_vary_test() {
-  $WORKLOAD_GEN_PATH --mixed --range-size 0 5 --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64
-  $WORKLOAD_GEN_PATH --mixed --range-size 0 5 --kdist kuniform --qdist qcorrelated --corr-degree 0.8
+  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --range-size 0 5 --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64
+  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --range-size 0 5 --kdist kuniform --qdist qcorrelated --corr-degree 0.8
 }
 
 mkdir -p $OUT_PATH/corr_test && cd $OUT_PATH/corr_test || exit 1
@@ -83,13 +93,13 @@ if ! generate_corr_test ; then
 fi
 echo "[!!] corr_test (figure 1, 5) dataset generated"
 mkdir -p ../fpr_test && cd ../fpr_test || exit 1
-if ! $WORKLOAD_GEN_PATH --mixed ; then
+if ! $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed ; then
   echo "[!!] fpr_test generation failed"
   exit 1
 fi
 echo "[!!] fpr_test (figure 3) dataset generated"
 mkdir -p ../fpr_real_test && cd ../fpr_real_test || exit 1
-if ! $WORKLOAD_GEN_PATH --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/fb_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 ; then
+if ! $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/fb_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 ; then
   echo "[!!] fpr_real_test generation failed"
   exit 1
 fi
@@ -113,3 +123,4 @@ if ! generate_memento_vary_test ; then
 fi
 echo "[!!] memento_vary_test dataset generated"
 echo "[!!] success, all datasets generated"
+

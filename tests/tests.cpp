@@ -1,4 +1,4 @@
-// Copyright (c) 2023, Marco Costa
+// Copyright (c) 2024, Navid Eslami
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,7 @@
 /*
  * ============================================================================
  *
- *        Authors:  Prashant Pandey <ppandey@cs.stonybrook.edu>
- *                  Rob Johnson <robj@vmware.com>   
+ *        Author:  Navid Eslami <navideslami@cs.toronto.edu>
  *
  * ============================================================================
  */
@@ -28,7 +27,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
-#include <time.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -205,47 +203,26 @@ void test_without_hashing() {
     for (int i = 0; i < 30; i++)
         mementos[i] = i;
     qf_insert_mementos(qf, 0xFFFFF502, mementos, 30, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     mementos[0] = 5;
     mementos[1] = 7;
     mementos[2] = 25;
     mementos[3] = 31;
     qf_insert_mementos(qf, 0xFFFFE10A, mementos, 4, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     for (int i = 0; i < 20; i++)
         mementos[i] = i + 1;
     qf_insert_mementos(qf, 0xFFFFE81D, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     
     qf_insert_mementos(qf, 0x3333F70F, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     qf_insert_mementos(qf, 0x33330640, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     qf_insert_mementos(qf, 0x333F6940, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     for (int i = 0; i < 30; i++)
         mementos[i] = i;
     qf_insert_mementos(qf, 0x3333A100, mementos, 30, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     fprintf(stderr, "%s-------- CHECKING POINT QUERY + COLLISIONS --------%s\n",
                     k_green, k_white);
@@ -267,8 +244,6 @@ void test_without_hashing() {
 
     mementos[0] = 29;
     qf_insert_mementos(qf, 0x33330640, mementos, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
 
     assert(qf_point_query(qf, 0x33330640, 29, QF_NO_LOCK | QF_KEY_IS_HASH));
     assert(!qf_point_query(qf, 0x33330640, 30, QF_NO_LOCK | QF_KEY_IS_HASH));
@@ -353,39 +328,19 @@ void test_iterators() {
     for (int i = 0; i < 30; i++)
         mementos[i] = i;
     qf_insert_mementos(qf, 0xFFFFF502, mementos, 30, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     mementos[0] = 5;
     mementos[1] = 7;
     mementos[2] = 25;
     mementos[3] = 31;
     qf_insert_mementos(qf, 0xFFFFE10A, mementos, 4, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     for (int i = 0; i < 20; i++)
         mementos[i] = i + 1;
     qf_insert_mementos(qf, 0xFFFFE81D, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     qf_insert_mementos(qf, 0x3333F70F, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     qf_insert_mementos(qf, 0x33330640, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     qf_insert_mementos(qf, 0x333F6940, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     mementos[0] = 29;
     qf_insert_mementos(qf, 0x33330640, mementos, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
 
     fprintf(stderr, "%s-------- CHECKING ITERATORS --------%s\n", k_green, k_white);
     uint64_t hash_result, memento_result[256];
@@ -394,8 +349,6 @@ void test_iterators() {
 
     QFi *iter = (QFi *) malloc(sizeof(QFi));
     qf_iterator_from_position(qf, iter, 0);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 1);
     assert(iter->current == 1);
 
@@ -406,8 +359,6 @@ void test_iterators() {
         assert(memento_result[i] == i);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 7);
     assert(iter->current == 18);
 
@@ -420,8 +371,6 @@ void test_iterators() {
     assert(memento_result[3] == 31);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 11);
     assert(iter->current == 22);
 
@@ -432,8 +381,6 @@ void test_iterators() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 22);
     assert(iter->current == 34);
 
@@ -444,8 +391,6 @@ void test_iterators() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 50);
     assert(iter->current == 50);
 
@@ -456,8 +401,6 @@ void test_iterators() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 50);
     assert(iter->current == 62);
 
@@ -467,8 +410,6 @@ void test_iterators() {
     assert(memento_result[0] == 29);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 50);
     assert(iter->current == 63);
 
@@ -479,8 +420,6 @@ void test_iterators() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     
     result_length = qfi_get_hash(iter, &hash_result, memento_result);
     assert(result_length < 0); // Done iterating!
@@ -505,50 +444,26 @@ void test_expansion() {
     for (int i = 0; i < 30; i++)
         mementos[i] = i;
     qf_insert_mementos(qf, 0xFFFFF502, mementos, 30, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     mementos[0] = 5;
     mementos[1] = 7;
     mementos[2] = 25;
     mementos[3] = 31;
     qf_insert_mementos(qf, 0xFFFFE10A, mementos, 4, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     for (int i = 0; i < 20; i++)
         mementos[i] = i + 1;
     qf_insert_mementos(qf, 0xFFFFE81D, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     qf_insert_mementos(qf, 0x3333F70F, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     qf_insert_mementos(qf, 0x33330640, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     qf_insert_mementos(qf, 0x333F6940, mementos, 20, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
     mementos[0] = 29;
     qf_insert_mementos(qf, 0x33330640, mementos, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
 
     fprintf(stderr, "%s-------- EXPANDING FILTER --------%s\n", k_green, k_white);
     qf_resize_malloc(qf, qf->metadata->nslots * 2);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
 
     for (uint32_t i = 0; i < 10; i++)
         mementos[i] = (i + 1) * 3;
     qf_insert_mementos(qf, 0x11126C40, mementos, 10, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
 
     fprintf(stderr, "%s-------- CHECKING QUERIES --------%s\n", k_green, k_white);
     assert(!qf_point_query(qf, 0x11126C40, 20, QF_NO_LOCK | QF_KEY_IS_HASH));
@@ -605,8 +520,6 @@ void test_expansion() {
     int result_length;
 
     qf_iterator_from_position(qf, iter, 0);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 3);
     assert(iter->current == 3);
 
@@ -617,8 +530,6 @@ void test_expansion() {
         assert(memento_result[i] == i);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 15);
     assert(iter->current == 22);
 
@@ -628,8 +539,6 @@ void test_expansion() {
     assert(memento_result[0] == 5);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 15);
     assert(iter->current == 23);
     result_length = qfi_get_hash(iter, &hash_result, memento_result);
@@ -638,8 +547,6 @@ void test_expansion() {
     assert(memento_result[0] == 7);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 15);
     assert(iter->current == 24);
     result_length = qfi_get_hash(iter, &hash_result, memento_result);
@@ -648,8 +555,6 @@ void test_expansion() {
     assert(memento_result[0] == 25);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 15);
     assert(iter->current == 25);
     result_length = qfi_get_hash(iter, &hash_result, memento_result);
@@ -658,8 +563,6 @@ void test_expansion() {
     assert(memento_result[0] == 31);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 23);
     assert(iter->current == 26);
 
@@ -670,8 +573,6 @@ void test_expansion() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 44);
     assert(iter->current == 44);
 
@@ -682,8 +583,6 @@ void test_expansion() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 100);
     assert(iter->current == 100);
 
@@ -694,8 +593,6 @@ void test_expansion() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 100);
     assert(iter->current == 113);
 
@@ -705,8 +602,6 @@ void test_expansion() {
     assert(memento_result[0] == 29);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 100);
     assert(iter->current == 114);
 
@@ -718,8 +613,6 @@ void test_expansion() {
 
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     assert(iter->run == 101);
     assert(iter->current == 121);
 
@@ -730,16 +623,12 @@ void test_expansion() {
         assert(memento_result[i] == i + 1);
 
     qfi_next(iter);
-    //print_iterator_contents(iter);
-    //print_iterator_get_result(iter);
     
     result_length = qfi_get_hash(iter, &hash_result, memento_result);
     assert(result_length < 0); // Done iterating!
 
     fprintf(stderr, "%s-------- EXPANDING FILTER AGAIN --------%s\n", k_green, k_white);
     qf_resize_malloc(qf, qf->metadata->nslots * 2);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
     
     qf_free(qf);
 }
@@ -788,9 +677,6 @@ void test_insert_single() {
     mementos[3] = 25;
     mementos[4] = 31;
     qf_insert_mementos(qf, 0xFFFFE00B, mementos, 5, QF_NO_LOCK | QF_KEY_IS_HASH);
-    //qf_dump_metadata(qf);
-    //qf_dump(qf);
-    //perror("#######################################################################");
 
     qf_insert_single(qf, 0xFFFFF502, 19, QF_NO_LOCK | QF_KEY_IS_HASH);
     qf_insert_single(qf, 0xFFFFF502, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
@@ -1576,8 +1462,6 @@ void test_skew(QF *qf) {
 }
 
 int main(int argc, char **argv) {
-    puts("Hi Mom & Dad!\n");
-
     test_without_hashing();
     test_iterators();
     test_expansion();

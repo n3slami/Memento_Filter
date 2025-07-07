@@ -18,6 +18,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <random>
 #include <vector>
 
 #include "bench_utils.hpp"
@@ -430,8 +432,8 @@ generate_real_queries(std::vector<uint64_t> &data, uint64_t n_queries, std::vect
 }
 
 template <typename value_type = uint64_t>
-void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vector<int> range_size_list,
-                           const bool true_queries=false) {
+void generate_real_dataset(const std::string& file, uint64_t n_keys, uint64_t n_queries,
+                           std::vector<int> range_size_list, const bool true_queries=false) {
     std::vector<uint64_t> ranges(range_size_list.size());
     std::transform(range_size_list.begin(), range_size_list.end(), ranges.begin(), [](auto v) {
         return (1ULL << v);
@@ -443,6 +445,14 @@ void generate_real_dataset(const std::string& file, uint64_t n_queries, std::vec
     std::string root_path = "./" + dir_name + "/";
     auto temp_data = read_data_binary<value_type>(file);
     auto all_data = std::vector<uint64_t>(temp_data.begin(), temp_data.end());
+
+    if (n_keys < all_data.size()) {
+        std::mt19937_64 rng(n_keys);
+        std::shuffle(all_data.begin(), all_data.end(), rng);
+        all_data.resize(n_keys);
+        std::sort(all_data.begin(), all_data.end());
+    }
+
     assert(all_data.size() > n_queries);
 
     if (true_queries) {
@@ -595,9 +605,9 @@ int main(int argc, char const *argv[]) {
         for (const auto &file : *file_list)
         {
             if (file.find("uint32") != std::string::npos)
-                generate_real_dataset<uint32_t>(file, n_queries, ranges_int);
+                generate_real_dataset<uint32_t>(file, n_keys, n_queries, ranges_int);
             else
-                generate_real_dataset(file, n_queries, ranges_int, qdist[0] == "qtrue");
+                generate_real_dataset(file, n_keys, n_queries, ranges_int, qdist[0] == "qtrue");
         }
 
     }
