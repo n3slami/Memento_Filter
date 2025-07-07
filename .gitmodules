@@ -13,3 +13,6 @@
 [submodule "bench/include/grafite"]
 	path = bench/include/grafite
 	url = https://github.com/marcocosta97/grafite.git
+[submodule "bench/wiredtiger"]
+	path = bench/wiredtiger
+	url = https://github.com/wiredtiger/wiredtiger.git
