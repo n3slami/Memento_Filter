@@ -18,8 +18,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-if [ "$#" -ne 2 ]; then
-    echo "Illegal number of parameters, usage: execute_tests.sh <grafite_path> <datasets_path>"
+if [[ "$#" -ne 2 ]] && [[ "$#" -ne 3 ]]; then
+    echo "Invalid number of parameters, usage: execute_tests.sh <grafite_path> <datasets_path> [small]"
+fi
+if [[ "$#" -eq 3 ]] && [ "$3" != "small" ]; then
+    echo "Invalid parameters, usage: execute_tests.sh <grafite_path> <datasets_path> [small]"
+fi
+
+SMALL=""
+if [[ "$#" -eq 3 ]] && [ "$3" == "small" ]; then
+    SMALL="--small"
 fi
 
 MEMENTO_BUILD_PATH=$(realpath $1)
@@ -32,7 +40,6 @@ SCRIPT_DIR_PATH=$(dirname -- "$( readlink -f -- "$0"; )")
 
 OUT_PATH=./results
 
-: '
 mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test expansion $WORKLOADS_PATH/expansion_test $MEMENTO_BUILD_PATH ; then
   echo "[!!] expansion_test test failed"
@@ -40,11 +47,7 @@ if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test expansion $WORKLOADS_PATH/exp
 fi
 echo "[!!] expansion_test test executed successfully"
 
-exit 0
-'
-
-mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
-if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ; then
+if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ${SMALL} ; then
   echo "[!!] b_tree_test test failed"
   exit 1
 fi

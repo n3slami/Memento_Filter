@@ -18,16 +18,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-if [ "$#" -ne 2 && "$#" -ne 3 ]; then
+if [[ "$#" -ne 2 ]] && [[ "$#" -ne 3 ]]; then
     echo "Invalid number of parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
 fi
-if [ "$#" -eq 3 && "$3" -ne "small" ]; then
+if [[ "$#" -eq 3 ]] && [ "$3" != "small" ]; then
     echo "Invalid parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
 fi
 
 N_KEYS=200000000
 N_QUERIES=10000000
-if [ "$#" -eq 3 && "$3" -eq "small" ]; then
+if [[ "$#" -eq 3 ]] && [ "$3" == "small" ]; then
     N_KEYS=2000000
     N_QUERIES=100000
 fi
@@ -88,9 +88,11 @@ generate_b_tree_test() {
   expansion_count=3
   true_frac_count=10
 
-  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform -n 100000000 --qdist quniform -q 5000000 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
-  #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist knormal -n 100000000 --qdist qnormal -q 5000000 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
-  #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 -q 10000000 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
+  n_keys=$(( ${N_KEYS} / 2 ))
+  n_queries=$(( ${N_QUERIES} / 2 ))
+  $WORKLOAD_GEN_PATH -n ${n_keys} -q ${n_queries} --mixed --kdist kuniform --qdist quniform --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
+  #$WORKLOAD_GEN_PATH -n ${n_keys} -q ${n_queries} --mixed --kdist knormal --qdist qnormal --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
+  #$WORKLOAD_GEN_PATH -n ${n_keys} -q ${n_queries} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
 }
 
 mkdir -p $OUT_PATH/expansion_test && cd $OUT_PATH/expansion_test || exit 1
@@ -100,7 +102,7 @@ if ! generate_expansion_test ; then
 fi
 echo "[!!] expansion_test dataset generated"
 
-mkdir -p $OUT_PATH/b_tree_test && cd $OUT_PATH/b_tree_test || exit 1
+mkdir -p ../b_tree_test && cd ../b_tree_test || exit 1
 if ! generate_b_tree_test ; then
   echo "[!!] b_tree_test generation failed"
   exit 1

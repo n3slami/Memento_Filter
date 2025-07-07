@@ -39,6 +39,8 @@ ds_parameters = {'memento': list(np.linspace(8, 28, 6)),  # eps
                  'rosetta': list(np.linspace(8, 28, 6)),  # bpk
                  'rencoder': list(np.linspace(8, 28, 6))}  # bpk
 
+TOTAL_BUFFER_POOL_SIZE_MB = 1024
+
 # Format of the test directories for bulk testing
 # [test] ---> [{dataset name}] ---> keys.bin
 #                              |
@@ -72,7 +74,6 @@ def execute_test(ds, keys_path, data, path_csv):
             command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --csv {path_csv}'
 
         if "b_tree" in str(ds_benchmark_executables[ds]):
-            TOTAL_BUFFER_POOL_SIZE_MB = 1024
             command = f'{ds_benchmark_executables[ds]} {arg} --keys {keys_path} --workload {data["left"]} {data["right"]} --buffer_pool_size {TOTAL_BUFFER_POOL_SIZE_MB}MB --csv {path_csv}'
 
         print('{:^24s}'.format(f"[ starting \"{command}\"]"))
@@ -165,6 +166,8 @@ if __name__ == "__main__":
 
     parser.add_argument('-i', '--incremental', action='store_true', default=False,
                         help='if set, the script will look for the last test folder and copy the csv files in the current test folder')
+    parser.add_argument('--small', action='store_true', default=False,
+                        help='if set, the script will use a smaller buffer pool for WiredTiger')
     parser.add_argument('--numa', action='store_true', default=False, help='if set, the script will use numa')
     parser.add_argument('--membind', default=0, help='the numa node to use (if numa is set)')
     parser.add_argument('--physcpubind', default=16, help='the cpu to use (if numa is set)')
@@ -187,6 +190,9 @@ if __name__ == "__main__":
     if not args.memento_dir.exists():
         raise FileNotFoundError(
             'error, the memento dir does not exists')
+
+    if args.small:
+        TOTAL_BUFFER_POOL_SIZE_MB = 16
 
     if test_name == "expansion":
         ds_parameters = {"memento": [20],   # bpk
