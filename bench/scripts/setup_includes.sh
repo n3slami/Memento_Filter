@@ -17,3 +17,5 @@ git submodule update --init ../include/SNARF/
 git submodule update --init ../include/Oasis-RangeFilter/
 sed -i '/add_subdirectory(benchmark)/d' ../include/Oasis-RangeFilter/CMakeLists.txt
 
+git submodule update --init ../include/cqf/
+
