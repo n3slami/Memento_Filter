@@ -112,8 +112,7 @@ def bulk_execute(path_test_base, incremental_test=False):
     if incremental_test:
         sorted_dirs = sorted(os.listdir(path_output_base.parent), reverse=True)
         if len(sorted_dirs) < 2:
-            raise FileNotFoundError(
-                "error, cannot find a directory for incremental testing")
+            raise FileNotFoundError("error, cannot find a directory for incremental testing")
         path_old_test_base = Path(sorted_dirs[1])
         print(path_old_test_base)
 
@@ -156,8 +155,7 @@ def parse_tests(test_dir_path):
         if subdir.name.startswith(".") or subdir.name.endswith('.sh'):
             continue
         if not subdir.is_dir() and not subdir.name.endswith('.sh'):
-            raise FileNotFoundError(
-                f"error parsing the datasets, {subdir} is not a directory")
+            raise FileNotFoundError(f"error parsing the datasets, {subdir} is not a directory")
 
         datasets[subdir.name] = {'path': subdir, 'workloads': []}
         curr_data = datasets[subdir.name]
@@ -173,13 +171,11 @@ def parse_tests(test_dir_path):
                     left = Path(f'{w}/left')
                     right = Path(f'{w}/right')
                 if not left.is_file() or not right.is_file():
-                    raise FileNotFoundError(
-                        f"error parsing the datasets, workloads not found in {w}")
+                    raise FileNotFoundError(f"error parsing the datasets, workloads not found in {w}")
                 curr_data['workloads'].append({'range_size': work_param[0],
                                                'path': w, 'name': w, 'left': left, 'right': right})
         if 'keys_path' not in curr_data:
-            raise FileNotFoundError(
-                'error, cannot find the keys file in %s' % subdir)
+            raise FileNotFoundError("error, cannot find the keys file in %s" % subdir)
 
     return datasets
 
@@ -205,12 +201,10 @@ if __name__ == "__main__":
     test_name = args.test_name
 
     if not test_dir.exists():
-        raise FileNotFoundError(
-            'error, the test dir does not exists')
+        raise FileNotFoundError('error, the test dir does not exists')
 
     if not args.grafite_dir.exists():
-        raise FileNotFoundError(
-            'error, the grafite dir does not exists')
+        raise FileNotFoundError('error, the grafite dir does not exists')
 
     if test_name == 'fpr' or test_name == 'fpr_real':
         # ds_list = ds_list_with_bucketing

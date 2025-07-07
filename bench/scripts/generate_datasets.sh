@@ -18,16 +18,16 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-if [ "$#" -ne 2 && "$#" -ne 3 ]; then
+if [[ "$#" -ne 2 ]] && [[ "$#" -ne 3 ]]; then
     echo "Invalid number of parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
 fi
-if [ "$#" -eq 3 && "$3" -ne "small" ]; then
+if [[ "$#" -eq 3 ]] && [ "$3" != "small" ]; then
     echo "Invalid parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
 fi
 
 N_KEYS=200000000
 N_QUERIES=10000000
-if [ "$#" -eq 3 && "$3" -eq "small" ]; then
+if [[ "$#" -eq 3 ]] && [ "$3" == "small" ]; then
     N_KEYS=2000000
     N_QUERIES=100000
 fi
@@ -64,9 +64,9 @@ generate_corr_test() {
 }
 
 generate_true_test() {
-  #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist kuniform --mixed --qdist qtrue
+  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist kuniform --mixed --qdist qtrue
   #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist knormal --mixed --qdist qtrue
-  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 --qdist qtrue
+  #$WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 --qdist qtrue
 }
 
 generate_constr_time_test() {
@@ -74,7 +74,7 @@ generate_constr_time_test() {
   x=100000
   while [ $i -le 8 ]
   do
-    $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist kuniform --qdist quniform --range-size 5 -n ${x} -q $(echo "($x * 0.1)/1" | bc)
+    $WORKLOAD_GEN_PATH --kdist kuniform --qdist quniform --range-size 5 -n ${x} -q $(echo "($x * 0.1)/1" | bc)
     mv kuniform/ kuniform_${i}/
     x=$(echo "$x * 10" | bc)
     i=$(($i + 1))
@@ -116,7 +116,7 @@ if ! generate_constr_time_test ; then
   exit 1
 fi
 echo "[!!] constr_time_test (figure 7) dataset generated"
-mkdir -p $OUT_PATH/vary_memento_test && cd $OUT_PATH/vary_memento_test || exit 1
+mkdir -p ../vary_memento_test && cd ../vary_memento_test || exit 1
 if ! generate_memento_vary_test ; then
   echo "[!!] memento_vary_test generation failed"
   exit 1

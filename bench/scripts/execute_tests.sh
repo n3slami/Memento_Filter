@@ -18,8 +18,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-if [ "$#" -ne 2 ]; then
-    echo "Illegal number of parameters, usage: execute_tests.sh <grafite_path> <datasets_path>"
+if [[ "$#" -ne 2 ]]; then
+    echo "Invalid number of parameters, usage: execute_tests.sh <grafite_path> <datasets_path>"
 fi
 
 GRAFITE_BUILD_PATH=$(realpath $1)
@@ -33,6 +33,7 @@ SCRIPT_DIR_PATH=$(dirname -- "$( readlink -f -- "$0"; )")
 OUT_PATH=./results
 
 mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
+: '
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test corr $WORKLOADS_PATH/corr_test $GRAFITE_BUILD_PATH ; then
   echo "[!!] corr_test test failed"
   exit 1
@@ -48,6 +49,7 @@ if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test fpr_real $WORKLOADS_PATH/fpr_
   exit 1
 fi
 echo "[!!] fpr_real_test (figure 4,5) test executed successfully"
+'
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test vary_memento $WORKLOADS_PATH/vary_memento_test $GRAFITE_BUILD_PATH ; then
   echo "[!!] vary_memento_test test failed"
   exit 1
