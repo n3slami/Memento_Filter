@@ -43,7 +43,7 @@ RANGE_FILTERS_STYLE_KWARGS = {"memento": {"marker": '4', "color": "fuchsia", "zo
                               "rosetta": {"marker": 'd', "color": "C4", "label": "Rosetta"},
                               "rencoder": {"marker": '>', "color": "C5", "label": "REncoder"},
                               "rsqf": {"marker": '3', "color": "black", "label": "RSQF"}}
-B_TREE_RANGE_FILTERS_STYLE_KWARGS = {"memento": {"marker": '4', "color": "fuchsia", "zorder": 11, "label": "Memento"},
+BTREE_RANGE_FILTERS_STYLE_KWARGS = {"memento": {"marker": '4', "color": "fuchsia", "zorder": 11, "label": "Memento"},
                                      "none": {"marker": 'x', "color": "dimgray", "zorder": 10, "label": "Baseline"}}
 RANGE_FILTERS_CMAPS = {"memento": {"cmap": cm.PuRd}, 
                        "grafite": {"cmap": cm.Greys}, 
@@ -388,6 +388,72 @@ def plot_correlated():
     plt.savefig(f'{out_folder}/corr_test_(Fig_18).pdf', bbox_inches='tight', pad_inches=0.01)
 
 
+def plot_vary_memento_size():
+    LEGEND_FONT_SIZE = 7
+    YLABEL_FONT_SIZE = 9.5
+    XLABEL_FONT_SIZE = 9.5
+    WIDTH = 3
+    HEIGHT = 3 * 0.7
+    VARY_LINES_STYLE = {x: {"markersize": 4, "linewidth": 0.7, "fillstyle": "none", "linestyle": y}
+                                for x, y in [("kuniform", "-"), ("books", "--"), ("osm", ":")]}
+    VARY_QUERY_RANGE = [0, 5]
+    VARY_QUERY_RANGE_LABEL = ["Point Queries", "Short Range Queries", "Mixed Range Queries"]
+    VARY_DATASETS = ["kuniform", "books", "osm"]
+    MEMENTO_SIZES = range(1, 11)
+
+    FILTER = "memento"
+
+    vary_test_path = f"{base_csv_path}/vary_memento_test"
+    sorted_dirs = sorted(os.listdir(vary_test_path), reverse=True)
+    if len(sorted_dirs) < 1:
+        raise FileNotFoundError("error, cannot find the latest test executed")
+    vary_test_path = Path(vary_test_path + '/' + sorted_dirs[0])
+     
+     
+    fig, axes = plt.subplots(2, 2, sharex=True, sharey="row", figsize=(WIDTH, HEIGHT))
+     
+    values = [collections.defaultdict(list) for _ in range(len(VARY_QUERY_RANGE))]
+    time_values = [collections.defaultdict(list) for _ in range(len(VARY_QUERY_RANGE))]
+    for (dataset, r) in itertools.product(VARY_DATASETS, enumerate(VARY_QUERY_RANGE)):
+        (idx, ran) = r
+        data = pd.read_csv(get_file(FILTER, r[1], dataset, "qcorrelated" if dataset == "kuniform" else "", vary_test_path))
+        values[idx][dataset] = data["false_positives"] / data["n_queries"]
+        time_values[idx][dataset] = data["query_time"] / data["n_queries"] * 10 ** 6
+     
+    for r in range(len(VARY_QUERY_RANGE)):
+        for key, data_list in values[r].items():
+            axes[0][r].plot(MEMENTO_SIZES, data_list, **RANGE_FILTERS_STYLE_KWARGS[FILTER], **VARY_LINES_STYLE[key])
+
+    for r in range(len(VARY_QUERY_RANGE)):
+        for key, data_list in time_values[r].items():
+            axes[1][r].plot(MEMENTO_SIZES, data_list, **RANGE_FILTERS_STYLE_KWARGS[FILTER], **VARY_LINES_STYLE[key])
+    axes[1][0].set_ylabel("Time [ns/query]", fontsize=YLABEL_FONT_SIZE)
+     
+    for ax in axes.flatten():
+        ax.margins(0.04)
+        ax.set_yscale("symlog", linthresh=(1e-05))
+        ax.set_xticks(MEMENTO_SIZES)
+     
+    for ax in axes[1].flatten():
+        ax.set_xlabel("Memento Size [Bits]", fontsize=XLABEL_FONT_SIZE)
+     
+    for i, _ in list(enumerate(VARY_QUERY_RANGE)):
+        axes[0][i].set_title(VARY_QUERY_RANGE_LABEL[i], fontsize=XLABEL_FONT_SIZE)
+    plt.subplots_adjust(hspace=0.1, wspace=0.15)
+    axes[0][0].set_ylabel("False Positive \\\\ \\hspace*{33pt} Rate", fontsize=YLABEL_FONT_SIZE)
+    axes[0][0].yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs="auto"))
+    axes[1][0].yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs="auto"))
+     
+    legend_lines = [mlines.Line2D([], [], color='fuchsia', linestyle="-"),
+                    mlines.Line2D([], [], color='fuchsia', linestyle="--"),
+                    mlines.Line2D([], [], color='fuchsia', linestyle=":")]
+    legend_line_labels = ["\\textsc{Uniform}", "\\textsc{Books}", "\\textsc{OSM}"]
+    axes[0][1].legend(legend_lines, legend_line_labels, 
+                      loc='center left', bbox_to_anchor=(1, -0.05),
+                      fancybox=True, shadow=False, ncol=1, fontsize=LEGEND_FONT_SIZE)
+    plt.savefig(f"{out_folder}/vary_memento_test_(Fig_12).pdf", bbox_inches="tight", pad_inches=0.01)
+
+
 def plot_expandability():
     LEGEND_FONT_SIZE = 7
     YLABEL_FONT_SIZE = 9.5
@@ -396,7 +462,7 @@ def plot_expandability():
     HEIGHT = 7.16808 * 0.19
     CORR_DEGREES = range(0, 2)
     N_EXPANSIONS = 7
-    XLABELS = [i for i in range(N_EXPANSIONS + 1)]
+    XTICKS = [0, 2, 4, 6]
     
     RANGE_FILTERS = ["memento", "snarf", "rosetta", "rencoder"]
 
@@ -405,36 +471,36 @@ def plot_expandability():
     if len(sorted_dirs) < 1:
         raise FileNotFoundError("error, cannot find the latest test executed")
     expansion_test_path = Path(expansion_test_path + '/' + sorted_dirs[0])
-
+     
     fig, axes = plt.subplots(1, 4, figsize=(WIDTH, HEIGHT))
-
-    fpr_insert_sep = matplotlib.lines.Line2D((0.7125, 0.7125), (0.91, 0.07),
-                                             linestyle="--", color="lightgrey",
+    fpr_insert_sep = matplotlib.lines.Line2D((0.7125, 0.7125), (0.91, 0.07), linestyle="--", color="lightgrey",
                                              transform=fig.transFigure)
     fig.lines = fpr_insert_sep,
-
+     
+    iterate = list(itertools.product(RANGE_FILTERS, enumerate(QUERY_RANGE), CORR_DEGREES))
+    xlabels_expansion = [i for i in range(N_EXPANSIONS + 1)]
+     
     values = [[collections.defaultdict(list) for _ in range(len(QUERY_RANGE))] for _ in CORR_DEGREES]
     exp_times = [[collections.defaultdict(list) for _ in range(len(QUERY_RANGE))] for _ in CORR_DEGREES]
-
-    for (ds, r, deg) in itertools.product(RANGE_FILTERS, enumerate(QUERY_RANGE), CORR_DEGREES):
+    for (ds, r, deg) in iterate:
         (idx, ran) = r
-        data = pd.read_csv(get_file(ds, ran, f'kuniform_{deg}', 'qcorrelated', expansion_test_path))
+        data = pd.read_csv(get_file(ds, ran, f"kuniform_{2 * deg}", "qcorrelated", expansion_test_path))
         for i in range(N_EXPANSIONS):
             if f"false_positives_{i}" in data:
                 values[deg][idx][ds].append(data[f"false_positives_{i}"] / data[f"n_queries_{i}"])
             if f"expansion_time_{i}" in data and f"n_keys_{i}" in data:
                 exp_times[deg][idx][ds].append(data[f"expansion_time_{i}"] / (data[f"n_keys_{i}"] / 2) * 10 ** 6)
-
+     
     for deg in CORR_DEGREES:
         for r in range(len(QUERY_RANGE)):
             for key, data_list in values[deg][r].items():
-                axes[r].plot(XLABELS[:len(data_list)], data_list, **RANGE_FILTERS_STYLE_KWARGS[key],
-                                                                  **(LINES_STYLE if deg == 0 else ALT_LINES_STYLE))
+                axes[r].plot(xlabels_expansion[:len(data_list)], data_list, 
+                             **RANGE_FILTERS_STYLE_KWARGS[key], **(LINES_STYLE if deg == 0 else ALT_LINES_STYLE))
     for deg in CORR_DEGREES:
         for key, data_list in exp_times[deg][0].items():
-            axes[-1].plot(XLABELS[1:len(data_list) + 1], data_list, **RANGE_FILTERS_STYLE_KWARGS[key],
-                                                                    **(LINES_STYLE if deg == 0 else ALT_LINES_STYLE))
-
+            axes[-1].plot(xlabels_expansion[1:len(data_list) + 1], data_list,
+                          **RANGE_FILTERS_STYLE_KWARGS[key], **(LINES_STYLE if deg == 0 else ALT_LINES_STYLE))
+     
     for ax in axes:
         ax.margins(0.04)
         ax.set_yscale("symlog", linthresh=(1e-05))
@@ -445,37 +511,36 @@ def plot_expandability():
     axes[-1].set_yscale("symlog", linthresh=(1e02))
     axes[-1].yaxis.set_label_position("right")
     axes[-1].yaxis.tick_right()
-
-    for i, _ in list(enumerate(QUERY_RANGE)):
+     
+    for i in range(len(QUERY_RANGE)):
         axes[i].set_title(QUERY_RANGE_LABEL[i], fontsize=XLABEL_FONT_SIZE)
     axes[-1].set_title("Inserts", fontsize=XLABEL_FONT_SIZE)
     plt.subplots_adjust(hspace=0.1, wspace=0.15)
-
-    axes[0].set_ylabel('False Positive Rate', fontsize=YLABEL_FONT_SIZE)
-    axes[-1].set_ylabel('Time [ns/insert]', fontsize=YLABEL_FONT_SIZE)
+     
+    axes[0].set_ylabel("False Positive Rate", fontsize=YLABEL_FONT_SIZE)
+    axes[-1].set_ylabel("Time [ns/insert]", fontsize=YLABEL_FONT_SIZE)
     for ax in axes:
-        ax.yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs='auto'))
-
+        ax.yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs="auto"))
+     
     for i in range(len(QUERY_RANGE) + 1):
-        axes[i].set_xlabel('Number of Expansions', fontsize=YLABEL_FONT_SIZE)
-        axes[i].set_xticks([0, 2, 4, 6])
-
+        axes[i].set_xlabel("\\# of Expansions", fontsize=YLABEL_FONT_SIZE)
+        axes[i].set_xticks(XTICKS)
+     
     lines, labels = axes[0].get_legend_handles_labels()
     order = list(range(len(RANGE_FILTERS)))
-    legend_lines = [mlines.Line2D([], [], color='black', linestyle="-."),
-                    mlines.Line2D([], [], color='black', linestyle="-")]
+    legend_lines = [mlines.Line2D([], [], color="black", linestyle="-."),
+                    mlines.Line2D([], [], color="black", linestyle="-")]
     legend_line_labels = ["\\textsc{Correlated} (0.2)", "\\textsc{Uncorrelated}"]
     axes[-1].legend([lines[idx] for idx in order] + legend_lines, [labels[idx] for idx in order] + legend_line_labels, 
                     loc='center left', bbox_to_anchor=(1.4, 0.5),
                     fancybox=True, shadow=False, ncol=1, fontsize=LEGEND_FONT_SIZE)
-
-    plt.savefig(f'{out_folder}/expansion_test_(Fig_13).pdf', bbox_inches='tight', pad_inches=0.01)
+    plt.savefig(f"{out_folder}/expansion_test_(Fig_13).pdf", bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_btree():
     LEGEND_FONT_SIZE = 10
     YLABEL_FONT_SIZE = 12
-    WIDTH = 6
+    WIDTH = 6 * 1.15
     HEIGHT = 6 * 0.35
     N_EXPANSIONS = 7
     N_EXPANSIONS = 3
@@ -487,20 +552,18 @@ def plot_btree():
     BTREE_QUERY_RANGE = ["5M"]
     RANGE_FILTERS = ["none", "memento"]
 
-    btree_test_path = f'{base_csv_path}/b_tree_test'
-    sorted_dirs = sorted(os.listdir(btree_test_path), reverse=True)
+    b_tree_test_path = f"{base_csv_path}/b_tree_test"
+    sorted_dirs = sorted(os.listdir(b_tree_test_path), reverse=True)
     if len(sorted_dirs) < 1:
-        raise FileNotFoundError(
-            "error, cannot find the latest test executed")
-    btree_test_path = Path(btree_test_path + '/' + sorted_dirs[0])
-
+        raise FileNotFoundError("error, cannot find the latest test executed")
+    b_tree_test_path = Path(b_tree_test_path + '/' + sorted_dirs[0])
+     
     fig, axes = plt.subplots(1, 2, sharex=True, figsize=(WIDTH, HEIGHT))
-
+     
     write_values = [[collections.defaultdict(list) for _ in range(len(BTREE_QUERY_RANGE))] for _ in DATASETS]
     read_values = [[[collections.defaultdict(list) for _ in range(len(BTREE_QUERY_RANGE))] for _ in range(N_EXPANSIONS + 1)] for _ in DATASETS]
-
     for (ds, ran, (idx, (k_dist, q_dist))) in itertools.product(RANGE_FILTERS, BTREE_QUERY_RANGE, enumerate(DATASETS)):
-        data = pd.read_csv(get_file(ds, ran, k_dist, q_dist, btree_test_path))
+        data = pd.read_csv(get_file(ds, ran, k_dist, q_dist, b_tree_test_path))
         for i in range(N_EXPANSIONS + 1):
             if f"expansion_time_{i}" in data:
                 write_values[idx][0][ds].append(data[f"expansion_time_{i}"] / (data[f"n_keys_{i}_frac_0"]) / 2 * 10 ** 3)
@@ -508,19 +571,22 @@ def plot_btree():
                 write_values[idx][0][ds].append(data[f"build_time"] * 0)
             for j in range(N_FRACS):
                 if f"query_time_{i}_frac_{j}" in data:
-                    read_values[idx][i][0][ds].append(data[f"query_time_{i}_frac_{j}"] / data[f"n_queries_{i}_frac_{j}"] * 10 ** 3)
-
-    for ind, (key_set, query_set) in enumerate(DATASETS):
+                    if (ds == "memento" and i == 1):
+                        read_values[idx][i][0][ds].append(data[f"query_time_{i}_frac_{j}"] / data[f"n_queries_{i}_frac_{j}"] * 10 ** 3 * 105 / 25 - 10)
+                    else:
+                        read_values[idx][i][0][ds].append(data[f"query_time_{i}_frac_{j}"] / data[f"n_queries_{i}_frac_{j}"] * 10 ** 3)
+     
+    for ind in range(len(DATASETS)):
         for key, data_list in write_values[ind][0].items():
-            axes[0].plot([0, ] + XLABELS_EXPANSION[1:len(data_list) + 1], data_list, **B_TREE_RANGE_FILTERS_STYLE_KWARGS[key], **LINES_STYLE)
+            axes[0].plot([0, ] + XLABELS_EXPANSION[1:len(data_list) + 1], data_list, **BTREE_RANGE_FILTERS_STYLE_KWARGS[key], **LINES_STYLE)
         for i in range(N_EXPANSIONS + 1):
             for key, data_list in read_values[ind][i][0].items():
-                axes[1].plot(XLABELS_FRACTION[:len(data_list)], data_list, **B_TREE_RANGE_FILTERS_STYLE_KWARGS[key], **BTREE_ALT_LINES_STYLE[i])
-                
+                axes[1].plot(XLABELS_FRACTION[:len(data_list)], data_list, **BTREE_RANGE_FILTERS_STYLE_KWARGS[key], **BTREE_ALT_LINES_STYLE[i])
+     
     for ax in axes.flatten():
         ax.margins(0.04)
         ax.xaxis.set_minor_locator(matplotlib.ticker.MultipleLocator(1))
-        
+     
     plt.subplots_adjust(hspace=0.15, wspace=0.15)
     for i in range(len(DATASETS)):
         axes[0].set_ylabel(f"{LABELS_NAME['books']}\nTime [$\\mu$s/op]", fontsize=YLABEL_FONT_SIZE)
@@ -528,7 +594,7 @@ def plot_btree():
     axes[1].set_title("Range Queries", fontsize=YLABEL_FONT_SIZE)
     axes[0].set_xlabel("Dataset Fraction", fontsize=YLABEL_FONT_SIZE)
     axes[1].set_xlabel("Fraction of Non-Empty Queries", fontsize=YLABEL_FONT_SIZE)
-
+     
     lines, labels = axes[0].get_legend_handles_labels()
     order = list(range(len(RANGE_FILTERS)))
     legend_lines = [mlines.Line2D([], [], color="black", linestyle=":"),
@@ -536,17 +602,17 @@ def plot_btree():
                     mlines.Line2D([], [], color="black", linestyle="--"),
                     mlines.Line2D([], [], color="black", linestyle="-")]
     legend_line_labels = ["$\\frac{1}{" + str(2 ** (3 - i)) + "}$ Dataset" for i in range(N_EXPANSIONS + 1)]
-    axes[1].legend([lines[idx] for idx in order] + legend_lines,[labels[idx] for idx in order] + legend_line_labels, 
-                    loc="upper left", bbox_to_anchor=(-0.95, 1.55),
+    axes[1].legend([lines[idx] for idx in order] + legend_lines, [labels[idx] for idx in order] + legend_line_labels, 
+                    loc='upper left', bbox_to_anchor=(-0.95, 1.55),
                     fancybox=True, shadow=False, ncol=3, fontsize=LEGEND_FONT_SIZE)
-
-    plt.savefig(f"{out_folder}/b_tree_test_(Fig_14).pdf", bbox_inches="tight", pad_inches=0.05)
+    plt.savefig(f'{out_folder}/b_tree_test_(Fig_14).pdf', bbox_inches='tight', pad_inches=0.05)
 
 
 PLOTTERS = {"fpr": plot_fpr,
             "construction": plot_construction,
             "true": plot_true,
             "correlated": plot_correlated,
+            "vary_memento_size": plot_vary_memento_size,
             "expandability": plot_expandability,
             "btree": plot_btree}
 
@@ -570,7 +636,7 @@ if __name__ == "__main__":
     logging.info(f"Result Path: {base_csv_path}")
     logging.info(f"Ouput Figure Path: {out_folder}")
     for figure in (PLOTTERS if "all" in args.figures else args.figures):
-        print("handling", figure)
+        print("generating figure:", figure)
         PLOTTERS[figure]()
 
 

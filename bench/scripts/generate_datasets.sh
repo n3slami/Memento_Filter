@@ -91,36 +91,36 @@ if ! generate_corr_test ; then
   echo "[!!] corr_test generation failed"
   exit 1
 fi
-echo "[!!] corr_test (figure 1, 5) dataset generated"
+echo "[!!] corr_test (figure 8) dataset generated"
 mkdir -p ../fpr_test && cd ../fpr_test || exit 1
 if ! $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed ; then
   echo "[!!] fpr_test generation failed"
   exit 1
 fi
-echo "[!!] fpr_test (figure 3) dataset generated"
+echo "[!!] fpr_test (figure 9) dataset generated"
 mkdir -p ../fpr_real_test && cd ../fpr_real_test || exit 1
 if ! $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 $REAL_DATASETS_PATH/fb_200M_uint64 $REAL_DATASETS_PATH/osm_cellids_200M_uint64 ; then
   echo "[!!] fpr_real_test generation failed"
   exit 1
 fi
-echo "[!!] fpr_real_test (figure 4) dataset generated"
+echo "[!!] fpr_real_test (figure 9) dataset generated"
 mkdir -p ../true_test && cd ../true_test || exit 1
 if ! generate_true_test ; then
   echo "[!!] true_test generation failed"
   exit 1
 fi
-echo "[!!] true_test (figure 6) dataset generated"
+echo "[!!] true_test (figure 10) dataset generated"
 mkdir -p ../constr_time_test && cd ../constr_time_test || exit 1
 if ! generate_constr_time_test ; then
   echo "[!!] constr_time_test generation failed"
   exit 1
 fi
-echo "[!!] constr_time_test (figure 7) dataset generated"
+echo "[!!] constr_time_test (figure 11) dataset generated"
 mkdir -p ../vary_memento_test && cd ../vary_memento_test || exit 1
 if ! generate_memento_vary_test ; then
   echo "[!!] memento_vary_test generation failed"
   exit 1
 fi
-echo "[!!] memento_vary_test dataset generated"
+echo "[!!] memento_vary_test (figure 12) dataset generated"
 echo "[!!] success, all datasets generated"
 
