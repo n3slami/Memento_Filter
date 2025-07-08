@@ -37,10 +37,12 @@ RANGE_FILTERS_STYLE_KWARGS = {"memento": {"marker": '4', "color": "fuchsia", "zo
                               "grafite": {"marker": 'o', "color": "dimgray", "zorder": 10, "label": "Grafite"},
                               "none": {"marker": 'x', "color": "dimgray", "zorder": 10, "label": "Baseline"},
                               "snarf": {"marker": '^', "color": "C1", "label": "SNARF"},
+                              "oasis": {"marker": '+', "color": "tan", "label": "Oasis+"},
                               "surf": {"marker": 's', "color": "C2", "label": "SuRF"},
                               "proteus": {"marker": 'X', "color": "C3", "label": "Proteus"},
                               "rosetta": {"marker": 'd', "color": "C4", "label": "Rosetta"},
-                              "rencoder": {"marker": '>', "color": "C5", "label": "REncoder"}}
+                              "rencoder": {"marker": '>', "color": "C5", "label": "REncoder"},
+                              "rsqf": {"marker": '3', "color": "black", "label": "RSQF"}}
 B_TREE_RANGE_FILTERS_STYLE_KWARGS = {"memento": {"marker": '4', "color": "fuchsia", "zorder": 11, "label": "Memento"},
                                      "none": {"marker": 'x', "color": "dimgray", "zorder": 10, "label": "Baseline"}}
 RANGE_FILTERS_CMAPS = {"memento": {"cmap": cm.PuRd}, 
@@ -56,7 +58,7 @@ ALT_LINES_STYLE = {"markersize": 4, "linewidth": 0.7, "fillstyle": "none", "line
 BTREE_ALT_LINES_STYLE = [{"markersize": 4, "linewidth": 0.7, "fillstyle": "none", "linestyle": x} for x in [":", "-.", "--", "-"]]
 
 KEYS_SYNTH = ["kuniform"]
-KEYS_REAL = ['books', 'osm', 'fb']
+KEYS_REAL = ["books", "osm", "fb"]
 LABELS_NAME = {"kuniform": r"$\textsc{Uniform}$", 
                "knormal": r"$\textsc{Normal}$",
                "qcorrelated": r"$\textsc{Correlated}$", 
@@ -70,11 +72,11 @@ QUERY_RANGE_LABEL = ["Point Queries", "Short Range Queries", "Long Range Queries
 DATASETS_SYNTH = list(itertools.product(KEYS_SYNTH, QUERY_SYNTH))
 DATASETS_REAL = KEYS_REAL
 
-def get_file(filter, range_size, dataset_name, query_name="quniform", path=None):
+def get_file(filter, range_size, dataset_name, query_name="", path=None):
     if dataset_name in KEYS_SYNTH or query_name:
-        p = Path(f'{path}/{dataset_name}/{range_size}_{query_name}/{filter}.csv')
+        p = Path(f"{path}/{dataset_name}/{range_size}_{query_name}/{filter}.csv")
     else:
-        p = Path(f'{path}/{dataset_name}/{range_size}/{filter}.csv')
+        p = Path(f"{path}/{dataset_name}/{range_size}/{filter}.csv")
     if not p.exists:
         raise FileNotFoundError(f"error, {p} does not exist")
     return p
@@ -88,64 +90,59 @@ def print_fpr_test(fpr_test_path, fpr_real_test_path, filters, workloads, name):
     WIDTH = 7.16808 * 0.7
     HEIGHT = 9.77885 / 1.6
     MAX_X_AXIS_BPK = 30
+    YTICKS = [1, 1e-01, 1e-02, 1e-03, 1e-04, 1e-05, 1e-06, 0]
 
     nrows = len(workloads)
     ncols = len(QUERY_RANGE)
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey='row', figsize=(WIDTH, HEIGHT))
-
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey="row", figsize=(WIDTH, HEIGHT))
     for (x, ds, r) in itertools.product(workloads, filters, enumerate(QUERY_RANGE)):
-        row = workloads.index(x)
-        (idx, ran) = r
-        if type(x) is tuple:
-            if not os.path.isfile(get_file(ds, r[1], x[0], x[1], path=fpr_test_path)):
-                continue
-            data = pd.read_csv(get_file(ds, r[1], x[0], x[1], path=fpr_test_path))
-        else:
-            if not os.path.isfile(get_file(ds, r[1], x, path=fpr_real_test_path)):
-                continue
-            data = pd.read_csv(get_file(ds, r[1], x, path=fpr_real_test_path))
-        data['fpr_opt'] = data['false_positives'] / data['n_queries']
-        data.plot("bpk", "fpr_opt", ax=axes[row][idx], **RANGE_FILTERS_STYLE_KWARGS[ds], **LINES_STYLE)
-
-    ticks = [1, 1e-01, 1e-02, 1e-03, 1e-04, 1e-05, 1e-06, 0]
-
+        try:
+            row = workloads.index(x)
+            (idx, ran) = r
+            if type(x) is tuple:
+                data = pd.read_csv(get_file(ds, r[1], x[0], x[1], path=fpr_test_path))
+            else:
+                data = pd.read_csv(get_file(ds, r[1], x, path=fpr_real_test_path))
+            data["fpr_opt"] = data["false_positives"] / data["n_queries"]
+            data.plot("bpk", "fpr_opt", ax=axes[row][idx], **RANGE_FILTERS_STYLE_KWARGS[ds], **LINES_STYLE)
+        except FileNotFoundError:
+            pass
+ 
     for ax in axes.flatten():
-        ax.set_yscale('symlog', linthresh=(1e-06))
+        ax.set_yscale("symlog", linthresh=(1e-06))
         ax.set_xlim(right=MAX_X_AXIS_BPK)
-        ax.set_yticks(ticks)
+        ax.set_yticks(YTICKS)
         ax.set_ylim(bottom=-0.0000003, top=1.9)
         ax.xaxis.set_minor_locator(matplotlib.ticker.MultipleLocator(2))
-        ax.set_xlabel('Space [bits/key]', fontsize=XLABEL_FONT_SIZE)
+        ax.set_xlabel("Space [bits/key]", fontsize=XLABEL_FONT_SIZE)
         ax.get_legend().remove()
         ax.autoscale_view()
         ax.margins(0.04)
-    
+ 
     for ax in axes:
         ax[0].yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs="auto"))
-        
+ 
     for i, k in list(enumerate(workloads)):
         if type(k) is tuple:
-            axis_title = f'{LABELS_NAME[k[1]]}'
+            axis_title = f"{LABELS_NAME[k[1]]}"
         else:
-            axis_title = f'{LABELS_NAME[k]}'
+            axis_title = f"{LABELS_NAME[k]}"
         axes[i][0].set_ylabel(axis_title + "\nFalse Positive Rate", fontsize=YLABEL_FONT_SIZE)
-        
-    for i, _ in list(enumerate(QUERY_RANGE)):
+ 
+    for i in range(len(QUERY_RANGE)):
         axes[0][i].set_title(QUERY_RANGE_LABEL[i], fontsize=TITLE_FONT_SIZE)
-
+ 
     fig.subplots_adjust(wspace=0.1)
     lines, labels = axes[0][1].get_legend_handles_labels()
-
     if len(filters) > 4:
         ncol = (len(filters) + 1) // 2
         bbox = (0.5, 1.65)
     else:
         ncol = len(filters)
         bbox = (0.5, 1.5)
-        
-    axes[0][1].legend(lines, labels, loc='upper center', bbox_to_anchor=bbox,
+    axes[0][1].legend(lines, labels, loc="upper center", bbox_to_anchor=bbox,
             fancybox=True, shadow=False, ncol=ncol, fontsize=LEGEND_FONT_SIZE)
-    fig.savefig(f'{out_folder}/fpr_test_{name}_(Fig_9).pdf', bbox_inches='tight', pad_inches=0.01)
+    fig.savefig(f"{out_folder}/fpr_test_{name}_(Fig_9).pdf", bbox_inches="tight", pad_inches=0.01)
 
 def generate_tables(fpr_test_path, fpr_real_test_path, filters, workloads):
     nrows = len(workloads)
@@ -175,19 +172,19 @@ def generate_tables(fpr_test_path, fpr_real_test_path, filters, workloads):
     df_list = []
     for i in range(nrows): 
         df = pd.DataFrame()
-        df['Competitor'] = mean_row[i].keys()
-        df['idx'] = df['Competitor'].copy()
-        df = df.set_index('idx')
+        df["Competitor"] = mean_row[i].keys()
+        df["idx"] = df["Competitor"].copy()
+        df = df.set_index("idx")
         for key, value in mean_row[i].items():
-            col_name = 'Avg Query time (wrt ' + filters[0] + ')'
-            df.at[key, 'avg'] = value[0]
-            df.at[key, col_name] = str(value[0]) + ' (' + str(value[1]) + '\\times)'
+            col_name = "Avg Query time (wrt " + filters[0] + ")"
+            df.at[key, "avg"] = value[0]
+            df.at[key, col_name] = str(value[0]) + " (" + str(value[1]) + "\\times)"
 
         # sort by 'temp' column ignoring the row of index 'Grafite'
-        df.iat[0, df.columns.get_loc('avg')] = -1
-        df = df.sort_values(by=['avg'])
+        df.iat[0, df.columns.get_loc("avg")] = -1
+        df = df.sort_values(by=["avg"])
         # remove the 'temp' column
-        df = df.drop('avg', axis=1)
+        df = df.drop("avg", axis=1)
         df_list.append(df)
         
     return df_list
@@ -195,7 +192,7 @@ def generate_tables(fpr_test_path, fpr_real_test_path, filters, workloads):
 
 def plot_fpr():
     WORKLOADS = [("kuniform", "qcorrelated"), ("kuniform", "quniform"), ("books"), ("osm")]
-    RANGE_FILTERS = ["memento", "grafite", "surf", "proteus", "snarf", "rencoder", "rosetta"]
+    RANGE_FILTERS = ["memento", "grafite", "surf", "proteus", "snarf", "oasis", "rencoder", "rosetta"]
 
     fpr_test_path = f"{base_csv_path}/fpr_test"
     sorted_dirs = sorted(os.listdir(fpr_test_path), reverse=True)
@@ -209,7 +206,7 @@ def plot_fpr():
         raise FileNotFoundError("error, cannot find the latest test executed")
     fpr_real_test_path = Path(fpr_real_test_path + '/' + sorted_dirs[0])
 
-    print_fpr_test(fpr_test_path, fpr_real_test_path, RANGE_FILTERS, WORKLOADS, 'all')
+    print_fpr_test(fpr_test_path, fpr_real_test_path, RANGE_FILTERS, WORKLOADS, "all")
 
     df_list = generate_tables(fpr_test_path, fpr_real_test_path, RANGE_FILTERS, WORKLOADS)
     with open(f"{out_folder}/table_(Fig_9).tex", 'w') as f:
@@ -224,11 +221,14 @@ def plot_construction():
     XLABEL_FONT_SIZE = 9.5
     WIDTH = 3.50069 * 0.78
     HEIGHT = 7.16808 * 0.3
-    BARW = 0.12  # Width of the bars
+    BARW = 0.115    # Width of the bars
     ALPHA_MODELING = 0.1
+    KEYS_SIZE = [5, 6, 7, 8]
+    LABELS_KEYS_SIZE = [f"$10^{x}$" for x in KEYS_SIZE]
+
     matplotlib.rcParams["hatch.linewidth"] = 0.1
 
-    RANGE_FILTERS = ["memento", "grafite", "snarf", "surf", "proteus", "rosetta", "rencoder"]
+    RANGE_FILTERS = ["memento", "grafite", "snarf", "oasis", "surf", "proteus", "rosetta", "rencoder"]
 
     size_test_path = f"{base_csv_path}/constr_time_test"
     sorted_dirs = sorted(os.listdir(size_test_path), reverse=True)
@@ -236,36 +236,33 @@ def plot_construction():
         raise FileNotFoundError("error, cannot find the latest test executed")
     size_test_path = Path(size_test_path + '/' + sorted_dirs[0])
 
-    keys_size = [5, 6, 7, 8]
-    labels_keys_size = [f"$10^{x}$" for x in keys_size]
-
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT))
 
-    for (r, ds) in itertools.product(keys_size, RANGE_FILTERS):
-        i = r - min(keys_size)
+    for (r, ds) in itertools.product(KEYS_SIZE, RANGE_FILTERS):
+        i = r - min(KEYS_SIZE)
         data = pd.read_csv(get_file(ds, 5, f"kuniform_{r}", query_name="quniform", path=size_test_path))
         if data.empty or data["build_time"].empty: continue
-
+     
         if "modelling_time" in data.columns:
-            build_time = np.mean(data["build_time"]) / data['n_keys'] * 10 ** 6
-            modelling_time = np.mean(data["modelling_time"]) / data["n_keys"] * 10 ** 6
-            ax.bar(RANGE_FILTERS.index(ds) * BARW + i, build_time, BARW, color=RANGE_FILTERS_STYLE_KWARGS[ds]['color'])
-            ax.bar(RANGE_FILTERS.index(ds) * BARW + i, modelling_time, BARW, label='_nolegend_', bottom=build_time, color=RANGE_FILTERS_STYLE_KWARGS[ds]['color'], alpha=ALPHA_MODELING, hatch='//////')
-        else:
-            build_time = np.mean(data["build_time"]) / data["n_keys"] * 10 ** 6
+            build_time = np.mean(data["build_time"])/data["n_keys"] * 10 ** 6
+            modelling_time = np.mean(data["modelling_time"])/data["n_keys"] * 10 ** 6
             ax.bar(RANGE_FILTERS.index(ds) * BARW + i, build_time, BARW, color=RANGE_FILTERS_STYLE_KWARGS[ds]["color"])
-
+            ax.bar(RANGE_FILTERS.index(ds) * BARW + i, modelling_time, BARW, label="_nolegend_", bottom=build_time,
+                                                                         color=RANGE_FILTERS_STYLE_KWARGS[ds]["color"], alpha=ALPHA_MODELING, hatch="//////")
+        else:
+            build_time = np.mean(data["build_time"])/data["n_keys"] * 10 ** 6
+            ax.bar(RANGE_FILTERS.index(ds) * BARW + i, build_time, BARW, color=RANGE_FILTERS_STYLE_KWARGS[ds]["color"])
+     
     ax.set_ylabel("Construction Time [ns/key]", fontsize=YLABEL_FONT_SIZE)
     ax.legend([RANGE_FILTERS_STYLE_KWARGS[ds]["label"] for ds in RANGE_FILTERS], loc="center left", bbox_to_anchor=(1, 0.5),
                       fancybox=True, shadow=False, ncol=1, fontsize=LEGEND_FONT_SIZE)
-    ax.set_xticks(np.arange(len(keys_size)) + 3 * BARW, labels_keys_size)
-    ax.set_xlabel("Number of Keys", fontsize=XLABEL_FONT_SIZE)
+    ax.set_xticks(np.arange(len(KEYS_SIZE)) + 3 * BARW, LABELS_KEYS_SIZE)
+    ax.set_xlabel('\\# of Keys', fontsize=XLABEL_FONT_SIZE)
     ax.yaxis.set_minor_locator(matplotlib.ticker.MultipleLocator(100))
-
+     
     leg = ax.get_legend()
     for ds in RANGE_FILTERS:
         leg.legend_handles[RANGE_FILTERS.index(ds)].set_color(RANGE_FILTERS_STYLE_KWARGS[ds]["color"])
-
     fig.savefig(f"{out_folder}/constr_time_test_(Fig_11).pdf", bbox_inches="tight", pad_inches=0.01)
 
 
@@ -276,8 +273,9 @@ def plot_true():
     XLABEL_FONT_SIZE = 9.5
     WIDTH = 7.16808 * 0.7
     HEIGHT = 7.16808 * 0.15
-    TICKS = [10 ** i for i in range(2, 6)]
+    YTICKS = [10 ** i for i in range(2, 6)]
     MAX_X_AXIS_BPK = 30
+    KEYS_SYNTH = ["kuniform"]
     
     RANGE_FILTERS = ["memento", "grafite", "snarf", "surf", "proteus", "rosetta", "rencoder"]
 
@@ -286,38 +284,39 @@ def plot_true():
     if len(sorted_dirs) < 1:
         raise FileNotFoundError("error, cannot find the latest test executed")
     true_test_path = Path(true_test_path + '/' + sorted_dirs[0])
-
-    keys_synth = ["kuniform"]
-    nrows = len(keys_synth)
+     
+    nrows = len(KEYS_SYNTH)
     ncols = len(QUERY_RANGE)
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey="row", figsize=(WIDTH, HEIGHT))
-
+     
     for (ds, r) in itertools.product(RANGE_FILTERS, enumerate(QUERY_RANGE)):
-        (idx, _) = r
-        data = pd.read_csv(get_file(ds, r[1], "kuniform", "qtrue", true_test_path))
-        data["single_query_time"] = (data["query_time"] / data["n_queries"]) * 10 ** 6
-        data.plot("bpk", "single_query_time", ax=axes[idx], **RANGE_FILTERS_STYLE_KWARGS[ds], **LINES_STYLE)
-
+        (idx, ran) = r
+        try:
+            data = pd.read_csv(get_file(ds, r[1], "kuniform", "qtrue", true_test_path))
+            data["single_query_time"] = (data["query_time"] / data["n_queries"]) * 10 ** 6
+            data.plot("bpk", "single_query_time", ax=axes[idx], **RANGE_FILTERS_STYLE_KWARGS[ds], **LINES_STYLE)
+        except FileNotFoundError:
+            pass
+     
     for ax in axes.flatten():
         ax.set_xlim(right=MAX_X_AXIS_BPK)
         ax.xaxis.set_minor_locator(matplotlib.ticker.MultipleLocator(2))
-        ax.set_xlabel("Space [bits/key]", fontsize=XLABEL_FONT_SIZE)
-        ax.set_yscale("log")
+        ax.set_xlabel('Space [bits/key]', fontsize=XLABEL_FONT_SIZE)
+        ax.set_yscale('log')
         ax.get_legend().remove()
         ax.yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs='auto'))
-        ax.set_yticks(TICKS)
-
-    for i in range(len(keys_synth)):
+        ax.set_yticks(YTICKS)
+     
+    for i in range(len(KEYS_SYNTH)):
         axes[i].set_ylabel("Time [ns/query]", fontsize=YLABEL_FONT_SIZE)
-    for i, _ in list(enumerate(QUERY_RANGE)):
+    for i in range(len(QUERY_RANGE)):
         axes[i].set_title(QUERY_RANGE_LABEL[i], fontsize=TITLE_FONT_SIZE)
-        
+     
     fig.subplots_adjust(wspace=0.1)
     lines, labels = axes[0].get_legend_handles_labels()
     axes[2].legend(lines, labels, 
                       loc="center left", bbox_to_anchor=(1, 0.5),
                       fancybox=True, shadow=False, ncol=2, fontsize=LEGEND_FONT_SIZE, columnspacing=0.5)
-
     fig.savefig(f"{out_folder}/true_queries_test_(Fig_10).pdf", bbox_inches="tight", pad_inches=0.01)
 
 
@@ -330,60 +329,63 @@ def plot_correlated():
     CORR_DEGREES = range(0, 11)
     XLABELS = [x / 10 for x in CORR_DEGREES]
     
-    RANGE_FILTERS = ["memento", "grafite", "snarf", "surf", "proteus", "rosetta", "rencoder"]
-    
+    RANGE_FILTERS = ["memento", "grafite", "snarf", "surf", "proteus", "rosetta", "rencoder", "rsqf"]
+        
     corr_test_path = f"{base_csv_path}/corr_test"
     sorted_dirs = sorted(os.listdir(corr_test_path), reverse=True)
     if len(sorted_dirs) < 1:
         raise FileNotFoundError("error, cannot find the latest test executed")
     corr_test_path = Path(corr_test_path + '/' + sorted_dirs[0])
-
-    fig, axes = plt.subplots(2, 3, sharex=True, sharey="row", figsize=(WIDTH, HEIGHT))
-
+     
+    fig, axes = plt.subplots(2, 3, sharex=True, sharey='row', figsize=(WIDTH, HEIGHT))
+     
     values = [collections.defaultdict(list) for _ in range(len(QUERY_RANGE))]
     time_values = [collections.defaultdict(list) for _ in range(len(QUERY_RANGE))]
-
     for (ds, r, deg) in itertools.product(RANGE_FILTERS, enumerate(QUERY_RANGE), CORR_DEGREES):
-        (idx, _) = r
+        (idx, ran) = r
+        if ds == "rsqf" and r[0] > 0:
+            continue
         data = pd.read_csv(get_file(ds, r[1], f"kuniform_{deg}", "qcorrelated", corr_test_path))
         data["fpr_opt"] = data["false_positives"] / data["n_queries"]
         fpr = data["fpr_opt"][0]
         time = data["query_time"][0]/data["n_queries"][0] * 10 ** 6
         values[idx][ds].append(fpr)
         time_values[idx][ds].append(time)
-        
+     
     for r in range(len(QUERY_RANGE)):
         for key, data_list in values[r].items():
+            if key == "rsqf" and r > 0:
+                continue
             axes[0][r].plot(XLABELS, data_list, **RANGE_FILTERS_STYLE_KWARGS[key], **LINES_STYLE)
-                
+     
     for r in range(len(QUERY_RANGE)):
         for key, data_list in time_values[r].items():
+            if key == "rsqf" and r > 0:
+                continue
             axes[1][r].plot(XLABELS, data_list, **RANGE_FILTERS_STYLE_KWARGS[key], **LINES_STYLE)   
         axes[1][r].set_yscale("log")
-        
     axes[1][0].set_ylabel("Time [ns/query]", fontsize=YLABEL_FONT_SIZE)
-
+     
     for ax in axes.flatten():
         ax.margins(0.04)
         ax.set_yscale("symlog", linthresh=(1e-05))
         ax.xaxis.set_minor_locator(matplotlib.ticker.MultipleLocator(0.1))
-        
     for ax in axes[1].flatten():
         ax.set_xlabel("Correlation Degree", fontsize=XLABEL_FONT_SIZE)
-        ax.yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs='auto'))
-        
+        ax.yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs="auto"))
+     
     for i in range(len(QUERY_RANGE)):
         axes[0][i].set_title(QUERY_RANGE_LABEL[i], fontsize=XLABEL_FONT_SIZE)
     plt.subplots_adjust(hspace=0.1, wspace=0.15)
     axes[0][0].set_ylabel("False Positive Rate", fontsize=YLABEL_FONT_SIZE)
     axes[0][0].yaxis.set_minor_locator(matplotlib.ticker.LogLocator(numticks=10, subs="auto"))
-
+     
     lines, labels = axes[0][0].get_legend_handles_labels()
     order = list(range(len(RANGE_FILTERS)))
     axes[0][2].legend([lines[idx] for idx in order],[labels[idx] for idx in order], 
                       loc="center left", bbox_to_anchor=(1, -0.05),
                       fancybox=True, shadow=False, ncol=1, fontsize=LEGEND_FONT_SIZE)
-    plt.savefig(f"{out_folder}/corr_test_twolines_(Fig_8).pdf", bbox_inches="tight", pad_inches=0.01)
+    plt.savefig(f'{out_folder}/corr_test_(Fig_18).pdf', bbox_inches='tight', pad_inches=0.01)
 
 
 def plot_expandability():
@@ -550,7 +552,7 @@ PLOTTERS = {"fpr": plot_fpr,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog='BenchResultPlotter')
+    parser = argparse.ArgumentParser(prog="BenchResultPlotter")
 
     parser.add_argument("-f", "--figures", nargs="+", choices=["all",] + list(PLOTTERS.keys()),
                         default=["all"], type=str, help="The figures to create")
@@ -568,6 +570,7 @@ if __name__ == "__main__":
     logging.info(f"Result Path: {base_csv_path}")
     logging.info(f"Ouput Figure Path: {out_folder}")
     for figure in (PLOTTERS if "all" in args.figures else args.figures):
+        print("handling", figure)
         PLOTTERS[figure]()
 
 

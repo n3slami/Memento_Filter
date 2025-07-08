@@ -50,5 +50,14 @@ if [[ "${FIX_OASIS}" -eq 1 ]]; then
     sed -i '/add_subdirectory(benchmark)/d' ../include/Oasis-RangeFilter/CMakeLists.txt
 fi
 
+FIX_RSQF=0
+if [ -z "$(ls -A ../include/cqf/)" ]; then
+    FIX_RSQF=1
+fi
 git submodule update --init ../include/cqf/
+if [[ "${FIX_OASIS}" -eq 1 ]]; then
+    # Seems like they forgot to zero out the memory they allocate, but assume
+    # that it's zero... let's fix that
+    sed -i "1650s/.*/memset(buffer, 0, total_num_bytes);/" ../include/cqf/src/gqf.c
+fi
 
