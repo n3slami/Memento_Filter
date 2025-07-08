@@ -14,7 +14,6 @@ fi
 
 project_root=$(pwd)
 
-: '
 git branch -r \
   | grep -v '\->' \
   | sed "s,\x1B\[[0-9;]*[a-zA-Z],,g" \
@@ -33,7 +32,7 @@ bash ${project_root}/bench/scripts/download_datasets.sh
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets ${SMALL}
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads
 
-cd ../Memento_Filter/
+cd ${project_root} 
 git checkout expandable
 rm -rf build/*
 cd build
@@ -45,9 +44,8 @@ cd ../paper_results
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets ${SMALL}
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads ${SMALL}
 
-cd ../Memento_Filter/
+cd ${project_root} 
 git checkout master
-'
 cd ../paper_results/
 python3 ${project_root}/bench/scripts/plot.py
 
