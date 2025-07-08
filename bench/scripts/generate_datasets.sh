@@ -78,7 +78,7 @@ generate_constr_time_test() {
 generate_expansion_test() {
   expansion_count=6
 
-  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform --qdist quniform --expansion-count ${expansion_count}
+  $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform --qdist qcorrelated --corr-degree 0.0 --expansion-count ${expansion_count}
   mv kuniform/ kuniform_0/
   $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform --qdist qcorrelated --corr-degree 0.2 --expansion-count ${expansion_count}
   mv kuniform/ kuniform_2/
