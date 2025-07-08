@@ -15,7 +15,7 @@ if [ -z "$(ls -A ../include/REncoder/)" ]; then
     FIX_RENCODER=1
 fi
 git submodule update --init ../include/REncoder/
-if [[ $FIX_RENCODER -eq 1 ]]; then
+if [[ "${FIX_RENCODER}" -eq 1 ]]; then
     # The original REncoder implementation relies on undefined behavior. Rectifying it...
     sed -i "300s/.*/int64_t u = (p & 0x000000000000000FU) | 0xFFFFFFFFFFFFFFE0U;/" ../include/REncoder/src/REncoder.h
     sed -i "301s/.*/bt |= sl <= 1 && el >= 1 ? (1u << (-u)) : 0;/" ../include/REncoder/src/REncoder.h
@@ -42,11 +42,11 @@ fi
 git submodule update --init ../include/SNARF/
 
 FIX_OASIS=0
-if [ -z "$(ls -A ../include/REncoder/)" ]; then
+if [ -z "$(ls -A ../include/Oasis-RangeFilter/)" ]; then
     FIX_OASIS=1
 fi
 git submodule update --init ../include/Oasis-RangeFilter/
-if [[ $FIX_OASIS -eq 1 ]]; then
+if [[ "${FIX_OASIS}" -eq 1 ]]; then
     sed -i '/add_subdirectory(benchmark)/d' ../include/Oasis-RangeFilter/CMakeLists.txt
 fi
 
