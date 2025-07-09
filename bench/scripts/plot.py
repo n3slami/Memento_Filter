@@ -385,7 +385,7 @@ def plot_correlated():
     axes[0][2].legend([lines[idx] for idx in order],[labels[idx] for idx in order], 
                       loc="center left", bbox_to_anchor=(1, -0.05),
                       fancybox=True, shadow=False, ncol=1, fontsize=LEGEND_FONT_SIZE)
-    plt.savefig(f'{out_folder}/corr_test_(Fig_18).pdf', bbox_inches='tight', pad_inches=0.01)
+    plt.savefig(f"{out_folder}/corr_test_(Fig_8).pdf", bbox_inches="tight", pad_inches=0.01)
 
 
 def plot_vary_memento_size():
@@ -605,7 +605,7 @@ def plot_btree():
     axes[1].legend([lines[idx] for idx in order] + legend_lines, [labels[idx] for idx in order] + legend_line_labels, 
                     loc='upper left', bbox_to_anchor=(-0.95, 1.55),
                     fancybox=True, shadow=False, ncol=3, fontsize=LEGEND_FONT_SIZE)
-    plt.savefig(f'{out_folder}/b_tree_test_(Fig_14).pdf', bbox_inches='tight', pad_inches=0.05)
+    plt.savefig(f"{out_folder}/b_tree_test_(Fig_14).pdf", bbox_inches="tight", pad_inches=0.05)
 
 
 PLOTTERS = {"fpr": plot_fpr,
