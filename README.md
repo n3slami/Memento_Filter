@@ -42,7 +42,7 @@ The `examples/simple.cpp` file shows how to index and query a vector of random
 integers with Memento filter.
 
 ## Repository Structure
-This repository has the following two branches:
+This repository has the following branches:
 - The `master` branch hosts the dynamic only implementation of Memento filter,
   and does not contain the test suite for the expandability and B-Tree
   experiments.
