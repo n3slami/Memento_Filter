@@ -1,8 +1,8 @@
 #! /bin/bash
 
 #
-# This file is part of Grafite <https://github.com/marcocosta97/grafite>.
-# Copyright (C) 2023 Marco Costa.
+# This file is part of Memento Filter <https://github.com/n3slami/Memento_Filter>.
+# Copyright (C) 2024 Navid Eslami.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,21 +19,30 @@
 #
 
 if [[ "$#" -ne 2 ]] && [[ "$#" -ne 3 ]]; then
-    echo "Invalid number of parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
+    echo "Invalid number of parameters, usage: generate_datasets.sh <memento_build_path> <real_datasets_path> [tiny|small|medium|large]"
+    exit 1
 fi
-if [[ "$#" -eq 3 ]] && [ "$3" != "small" ]; then
-    echo "Invalid parameters, usage: generate_datasets.sh <grafite_build_path> <real_datasets_path> [small]"
+OPTIONS=("tiny" "small" "medium" "large")
+if [[ "$#" -eq 3 ]] && ! printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$3"; then
+    echo "Invalid parameters, usage: generate_datasets.sh <memento_build_path> <real_datasets_path> [tiny|small|medium|large]"
+    exit 1
 fi
 
 N_KEYS=200000000
 N_QUERIES=10000000
-if [[ "$#" -eq 3 ]] && [ "$3" == "small" ]; then
+if [[ "$#" -eq 3 ]] && [ "$3" == "${OPTIONS[0]}" ]; then
+    N_KEYS=200000
+    N_QUERIES=10000
+elif [[ "$#" -eq 3 ]] && [ "$3" == "${OPTIONS[1]}" ]; then
     N_KEYS=2000000
     N_QUERIES=100000
+elif [[ "$#" -eq 3 ]] && [ "$3" == "${OPTIONS[2]}" ]; then
+    N_KEYS=20000000
+    N_QUERIES=1000000
 fi
 
-GRAFITE_BUILD_PATH=$(realpath $1)
-if [ ! -d "$GRAFITE_BUILD_PATH" ]; then
+MEMENTO_BUILD_PATH=$(realpath $1)
+if [ ! -d "$MEMENTO_BUILD_PATH" ]; then
   echo "Grafite build path does not exist"
   exit 1
 fi
@@ -43,7 +52,7 @@ if [ ! -d "$REAL_DATASETS_PATH" ]; then
   exit 1
 fi
 
-WORKLOAD_GEN_PATH=$(realpath $GRAFITE_BUILD_PATH/bench/workload_gen)
+WORKLOAD_GEN_PATH=$(realpath $MEMENTO_BUILD_PATH/bench/workload_gen)
 if [ ! -f "$WORKLOAD_GEN_PATH" ]; then
   echo "Workload generator does not exist"
   exit 1

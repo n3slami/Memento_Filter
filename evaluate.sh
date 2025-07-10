@@ -1,15 +1,14 @@
 #!/bin/bash
 
-if [[ "$#" -ge 2 ]] && [ "$1" != "small" ]; then
-    echo "$#"
-    echo "$1"
-    echo "Invalid parameters, usage: bash evaluate.sh [small]"
+OPTIONS=("tiny" "small" "medium" "large")
+if [[ "$#" -ge 1 ]] && ! printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$1"; then
+    echo "Invalid parameters, usage: bash evaluate.sh [tiny|small|medium|large]"
     exit 1
 fi
 
-SMALL=""
-if [[ "$1" -eq "small" ]]; then
-    SMALL="small"
+OPTION=""
+if printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$1"; then
+    OPTION="$1"
 fi
 
 project_root=$(pwd)
@@ -29,7 +28,7 @@ make -j8
 
 cd ../.. && mkdir -p paper_results && cd paper_results
 bash ${project_root}/bench/scripts/download_datasets.sh
-bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets ${SMALL}
+bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets ${OPTION}
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads
 
 cd ${project_root} 
@@ -41,11 +40,10 @@ make -j8
 cd ..
 
 cd ../paper_results
-bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets ${SMALL}
-bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads ${SMALL}
+bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets ${OPTION}
+bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads ${OPTION}
 
 cd ${project_root} 
 git checkout master
 cd ../paper_results/
 python3 ${project_root}/bench/scripts/plot.py
-

@@ -1,5 +1,5 @@
-#  This file is part of Grafite <https://github.com/marcocosta97/grafite>.
-#  Copyright (C) 2023 Marco Costa.
+#  This file is part of Memento Filter <https://github.com/n3slami/Memento_Filter>.
+#  Copyright (C) 2024 Navid Eslami.
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -30,7 +30,6 @@ membind = 0
 physcpubind = 16
 
 ds_list = ["memento", "grafite", "surf", "rosetta", "snarf", "proteus", "rencoder", "oasis"]
-# ds_list = ["oasis"]
 # ds_list_with_bucketing = ds_list.copy() + ['bucketing']
 memento_sizes_to_test = []
 
