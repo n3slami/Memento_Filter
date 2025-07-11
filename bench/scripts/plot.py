@@ -21,6 +21,7 @@ import matplotlib.lines as mlines
 import itertools, os
 import collections
 import logging
+from math import log10
 from pathlib import Path
 
 RC_FONTS = {
@@ -167,7 +168,7 @@ def generate_tables(fpr_test_path, fpr_real_test_path, filters, workloads):
             mean_row[i][key].append(round(np.mean(value)))
         default_value = mean_row[i][filters[0]][0]
         for key, value in mean_row[i].items():
-            mean_row[i][key].append(round(value[0]/default_value, 2))
+            mean_row[i][key].append(round(value[0] / max(default_value, 1), 2))
 
     df_list = []
     for i in range(nrows): 
@@ -223,8 +224,6 @@ def plot_construction():
     HEIGHT = 7.16808 * 0.3
     BARW = 0.115    # Width of the bars
     ALPHA_MODELING = 0.1
-    KEYS_SIZE = [5, 6, 7, 8]
-    LABELS_KEYS_SIZE = [f"$10^{x}$" for x in KEYS_SIZE]
 
     matplotlib.rcParams["hatch.linewidth"] = 0.1
 
@@ -238,11 +237,14 @@ def plot_construction():
 
     fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT))
 
+    max_n_keys = 0
+    KEYS_SIZE = [5, 6, 7, 8]
     for (r, ds) in itertools.product(KEYS_SIZE, RANGE_FILTERS):
         i = r - min(KEYS_SIZE)
         data = pd.read_csv(get_file(ds, 5, f"kuniform_{r}", query_name="quniform", path=size_test_path))
-        if data.empty or data["build_time"].empty: continue
-     
+        if data.empty or data["build_time"].empty:
+            continue
+        max_n_keys = max(max_n_keys, data["n_keys"].values[0])
         if "modelling_time" in data.columns:
             build_time = np.mean(data["build_time"])/data["n_keys"] * 10 ** 6
             modelling_time = np.mean(data["modelling_time"])/data["n_keys"] * 10 ** 6
@@ -252,6 +254,9 @@ def plot_construction():
         else:
             build_time = np.mean(data["build_time"])/data["n_keys"] * 10 ** 6
             ax.bar(RANGE_FILTERS.index(ds) * BARW + i, build_time, BARW, color=RANGE_FILTERS_STYLE_KWARGS[ds]["color"])
+
+    KEYS_SIZE = [round(log10(max_n_keys)) - i for i in reversed(range(4))]
+    LABELS_KEYS_SIZE = [f"$10^{x}$" for x in KEYS_SIZE]
      
     ax.set_ylabel("Construction Time [ns/key]", fontsize=YLABEL_FONT_SIZE)
     ax.legend([RANGE_FILTERS_STYLE_KWARGS[ds]["label"] for ds in RANGE_FILTERS], loc="center left", bbox_to_anchor=(1, 0.5),
@@ -418,7 +423,7 @@ def plot_vary_memento_size():
         (idx, ran) = r
         data = pd.read_csv(get_file(FILTER, r[1], dataset, "qcorrelated" if dataset == "kuniform" else "", vary_test_path))
         values[idx][dataset] = data["false_positives"] / data["n_queries"]
-        time_values[idx][dataset] = data["query_time"] / data["n_queries"] * 10 ** 6
+        time_values[idx][dataset] = data["query_time"].apply(lambda x: max(x, 1)) / data["n_queries"] * 10 ** 6
      
     for r in range(len(VARY_QUERY_RANGE)):
         for key, data_list in values[r].items():

@@ -66,6 +66,9 @@ generate_corr_test() {
   while [ $i -le 10 ]
   do
     $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform --qdist qcorrelated --corr-degree ${x}
+    if [ -d "kuniform_${i}/" ]; then
+        rm -rf kuniform_${i}/
+    fi
     mv kuniform/ kuniform_${i}/
     x=$(echo $x + 0.1 | bc)
     i=$(($i + 1))
@@ -81,9 +84,15 @@ generate_true_test() {
 generate_constr_time_test() {
   i=5
   x=100000
+  if [[ $N_KEYS -ne 200000000 ]]; then
+      x=10000
+  fi
   while [ $i -le 8 ]
   do
     $WORKLOAD_GEN_PATH --kdist kuniform --qdist quniform --range-size 5 -n ${x} -q $(echo "($x * 0.1)/1" | bc)
+    if [ -d "kuniform_${i}/" ]; then
+        rm -rf kuniform_${i}/
+    fi
     mv kuniform/ kuniform_${i}/
     x=$(echo "$x * 10" | bc)
     i=$(($i + 1))
