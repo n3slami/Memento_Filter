@@ -1,8 +1,8 @@
 #! /bin/bash
 
 #
-# This file is part of Grafite <https://github.com/marcocosta97/grafite>.
-# Copyright (C) 2023 Marco Costa.
+# This file is part of Memento Filter <https://github.com/n3slami/Memento_Filter>.
+# Copyright (C) 2024 Navid Eslami.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,15 +19,18 @@
 #
 
 if [[ "$#" -ne 2 ]] && [[ "$#" -ne 3 ]]; then
-    echo "Invalid number of parameters, usage: execute_tests.sh <grafite_path> <datasets_path> [small]"
+    echo "Invalid number of parameters, usage: execute_tests.sh <memento_path> <datasets_path> [tiny|small|medium|large]"
+    exit 1
 fi
-if [[ "$#" -eq 3 ]] && [ "$3" != "small" ]; then
-    echo "Invalid parameters, usage: execute_tests.sh <grafite_path> <datasets_path> [small]"
+OPTIONS=("tiny" "small" "medium" "large")
+if [[ "$#" -eq 3 ]] && ! printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$3"; then
+    echo "Invalid parameters, usage: execute_tests.sh <memento_path> <datasets_path> [tiny|small|medium|large]"
+    exit 1
 fi
 
-SMALL=""
-if [[ "$#" -eq 3 ]] && [ "$3" == "small" ]; then
-    SMALL="--small"
+OPTION=""
+if [[ "$#" -eq 3 ]] && printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$3"; then
+    OPTION="--$3"
 fi
 
 MEMENTO_BUILD_PATH=$(realpath $1)
@@ -47,18 +50,11 @@ if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test expansion $WORKLOADS_PATH/exp
 fi
 echo "[!!] expansion_test test executed successfully"
 
-if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ${SMALL} ; then
+if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ${OPTION} ; then
   echo "[!!] b_tree_test test failed"
   exit 1
 fi
 echo "[!!] b_tree_test test executed successfully"
 
-: '
-if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test corr $WORKLOADS_PATH/corr_test $MEMENTO_BUILD_PATH ; then
-  echo "[!!] corr_test test failed"
-  exit 1
-fi
-echo "[!!] corr_test (figure 1,3) test executed successfully"
-'
 
 echo "[!!] success, all tests executed"

@@ -1,5 +1,5 @@
-#  This file is part of Grafite <https://github.com/marcocosta97/grafite>.
-#  Copyright (C) 2023 Marco Costa.
+#  This file is part of Memento Filter <https://github.com/n3slami/Memento_Filter>.
+#  Copyright (C) 2024 Navid Eslami.
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -161,13 +161,16 @@ def parse_tests(test_dir_path):
     return datasets
 
 
+BUFFER_POOL_SIZE_MAP = {"tiny": 1, "small": 16, "medium": 256, "large": 1024}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='BenchFiltersScript')
 
     parser.add_argument('-i', '--incremental', action='store_true', default=False,
                         help='if set, the script will look for the last test folder and copy the csv files in the current test folder')
-    parser.add_argument('--small', action='store_true', default=False,
-                        help='if set, the script will use a smaller buffer pool for WiredTiger')
+    parser.add_argument("--benchmark_size", nargs=1, choices=["tiny", "small", "medium", "large"],
+                        default=["large"], type=str, help="the size of the benchmark used to adjust WiredTiger's buffer pool size")
     parser.add_argument('--numa', action='store_true', default=False, help='if set, the script will use numa')
     parser.add_argument('--membind', default=0, help='the numa node to use (if numa is set)')
     parser.add_argument('--physcpubind', default=16, help='the cpu to use (if numa is set)')
@@ -191,8 +194,7 @@ if __name__ == "__main__":
         raise FileNotFoundError(
             'error, the memento dir does not exists')
 
-    if args.small:
-        TOTAL_BUFFER_POOL_SIZE_MB = 16
+    TOTAL_BUFFER_POOL_SIZE_MB = BUFFER_POOL_SIZE_MAP[args.benchmark_size[0]]
 
     if test_name == "expansion":
         ds_parameters = {"memento": [20],   # bpk

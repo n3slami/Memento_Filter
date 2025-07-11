@@ -2,30 +2,46 @@
 
 <p align="center">
 Memento Filter is the first range filter to support dynamic datasets, constant
-time operations, and a theoretically optimal false positive rate. It also
-provides strong guarantees on the false positive rate under any kind of
-workload, be it static or dynamic. 
+time operations, and a theoretically optimal false positive rate under any of
+workload, all at the same time. 
 </p>
 
 ## Quick Reproducibility
+### Requirements
 For ease of reproducibility, the `master` branch in the repository contains an
 `evaluate.sh` script. This script downloads the required datasets, compiles
 Memento filter, sets the benchmarks up, runs them, and plots the results. To
-use this script, ensure that the requirements stated in
-[reproducibility.md](bench/reproducibility.md) are installed and then run
+use this script, ensure that the following dependencies are satisfied:
+- Boost >=1.67.0        (Used in some of the baselines, notably Grafite)
+- Python >=3.7          (Used to plot the experimental results only)
+  - Matplotlib >=3.2.1
+  - Numpy >=1.18.2
+  - Pandas >=1.0.3
+We also advise using a Linux machine with at least 32GB of RAM. Then, running
 ```bash
 git clone https://github.com/n3slami/Memento_Filter.git
 cd Memento_Filter
 bash evaluate.sh
 ```
-This will reproduce the results in the paper, and may take several days to run
-due to the large scale of the experiments. Supplying the `small` option to
-script, i.e., executing `bash evaluate.sh small`, runs a shorter and
-lower-scale evaluation with 200 times smaller experiments.
+will reproduce the results in the paper. The script may take several days to
+run due to the large scale of the experiments. To conduct a smaller-scale
+evaluation, the `evaluate.sh` script accepts the following parameters:
+```bash 
+tiny        # (Takes ~5 minutes to run. Works with datasets of size 200K.)
+small       # (Takes ~1 hour to run. Works with datasets of size 2M.)
+medium      # (Takes ~1 day to run. Works with datasets of size 20M.)
+large       # (The default. Takes multiple days to run. Works with datasets of size 200M.)
+```
+For example, executing `bash evaluate.sh tiny` runs the experimental suite with
+datasets that are 1000 times smaller than the original.
 
 This script creates a `paper_results` directory with the datasets and workloads
 and places it next to the cloned repository. The generated figures are placed
 in `paper_results/figures`, where each is numbered similarly to the paper.
+
+The [reproducibility.md](bench/reproducibility.md) file explains the details of
+how the `evaluate.sh` script works internally, as well as how one can manually
+emulate the process.
 
 ## Development
 
@@ -68,11 +84,13 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j8
 ```
 The benchmarks will be placed in `build/bench/`. Use the `evaluate.sh` script
-as described aboe to reproduce the results in the paper, and see
-[reproducibility.md](bench/reproducibility.md) for details reproducibility.
+as described above to reproduce the results in the paper, and see
+[reproducibility.md](bench/reproducibility.md) for details on its inner
+workings.
 
 ## License
 
 This project is licensed under the GPLv3 License - see the [LICENSE](LICENSE)
 file for details.
+
 
