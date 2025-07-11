@@ -7,7 +7,6 @@ workload, all at the same time.
 </p>
 
 ## Quick Reproducibility
-### Requirements
 For ease of reproducibility, the `master` branch in the repository contains an
 `evaluate.sh` script. This script downloads the required datasets, compiles
 Memento filter, sets the benchmarks up, runs them, and plots the results. To
