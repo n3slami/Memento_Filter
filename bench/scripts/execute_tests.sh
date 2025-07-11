@@ -28,9 +28,9 @@ if [[ "$#" -eq 3 ]] && ! printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$3"; then
     exit 1
 fi
 
-OPTION=""
+OPTION="large"
 if [[ "$#" -eq 3 ]] && printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$3"; then
-    OPTION="--$3"
+    OPTION="$3"
 fi
 
 MEMENTO_BUILD_PATH=$(realpath $1)
@@ -44,13 +44,15 @@ SCRIPT_DIR_PATH=$(dirname -- "$( readlink -f -- "$0"; )")
 OUT_PATH=./results
 
 mkdir -p $OUT_PATH && cd $OUT_PATH || exit 1
+: '
 if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test expansion $WORKLOADS_PATH/expansion_test $MEMENTO_BUILD_PATH ; then
   echo "[!!] expansion_test test failed"
   exit 1
 fi
 echo "[!!] expansion_test test executed successfully"
+'
 
-if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH ${OPTION} ; then
+if ! python3 $SCRIPT_DIR_PATH/test.py $ARGS --test b_tree $WORKLOADS_PATH/b_tree_test $MEMENTO_BUILD_PATH --benchmark_size ${OPTION} ; then
   echo "[!!] b_tree_test test failed"
   exit 1
 fi

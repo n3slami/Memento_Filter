@@ -161,7 +161,7 @@ def parse_tests(test_dir_path):
     return datasets
 
 
-BUFFER_POOL_SIZE_MAP = {"tiny": 1, "small": 16, "medium": 256, "large": 1024}
+BUFFER_POOL_SIZE_MAP = {"tiny": 16, "small": 16, "medium": 256, "large": 1024}
 
 
 if __name__ == "__main__":
