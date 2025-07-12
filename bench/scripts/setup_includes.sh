@@ -47,6 +47,7 @@ if [ -z "$(ls -A ../include/Oasis-RangeFilter/)" ]; then
 fi
 git submodule update --init ../include/Oasis-RangeFilter/
 if [[ "${FIX_OASIS}" -eq 1 ]]; then
+    sed -i "3i #include <cstddef>" ../include/Oasis-RangeFilter/src/include/learned_rf/bitset.h
     sed -i '/add_subdirectory(benchmark)/d' ../include/Oasis-RangeFilter/CMakeLists.txt
 fi
 

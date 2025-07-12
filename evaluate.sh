@@ -3,10 +3,11 @@
 OPTIONS=("tiny" "small" "medium" "large")
 if [[ "$#" -ge 1 ]] && ! printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$1"; then
     echo "Invalid parameters, usage: bash evaluate.sh [tiny|small|medium|large]"
+    echo "Default size parameter is tiny"
     exit 1
 fi
 
-OPTION=""
+OPTION="tiny"
 if printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$1"; then
     OPTION="$1"
 fi
@@ -25,6 +26,10 @@ git pull --all
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j8
+if [[ $? -ne 0 ]]; then
+    echo "Compilation of default suite failed"
+    exit 1
+fi
 
 cd ../.. && mkdir -p paper_results && cd paper_results
 bash ${project_root}/bench/scripts/download_datasets.sh
@@ -37,6 +42,10 @@ rm -rf build/*
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j8
+if [[ $? -ne 0 ]]; then
+    echo "Compilation of expandable suite failed"
+    exit 1
+fi
 cd ..
 
 cd ../paper_results
