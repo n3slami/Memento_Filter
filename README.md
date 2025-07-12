@@ -20,19 +20,21 @@ We also advise using a Linux machine with at least 32GB of RAM. Then, running
 ```bash
 git clone https://github.com/n3slami/Memento_Filter.git
 cd Memento_Filter
-bash evaluate.sh
+bash evaluate.sh large
 ```
 will reproduce the results in the paper. The script may take several days to
 run due to the large scale of the experiments. To conduct a smaller-scale
 evaluation, the `evaluate.sh` script accepts the following parameters:
 ```bash 
-tiny        # (Takes ~5 minutes to run. Works with datasets of size 200K.)
+tiny        # (The default. Takes ~10 minutes to run. Works with datasets of size 200K.)
 small       # (Takes ~1 hour to run. Works with datasets of size 2M.)
 medium      # (Takes ~1 day to run. Works with datasets of size 20M.)
-large       # (The default. Takes multiple days to run. Works with datasets of size 200M.)
+large       # (Takes multiple days to run. Works with datasets of size 200M.)
 ```
 For example, executing `bash evaluate.sh tiny` runs the experimental suite with
-datasets that are 1000 times smaller than the original.
+datasets that are 1000 times smaller than the original. This option is the
+default so that one can ensure the suite is working properly without having to
+wait a long amount of time for the execution to finish.
 
 This script creates a `paper_results` directory with the datasets and workloads
 and places it next to the cloned repository. The generated figures are placed

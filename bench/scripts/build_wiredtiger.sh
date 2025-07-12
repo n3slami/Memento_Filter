@@ -7,5 +7,5 @@ export LD=$COMPILER
 cd ../wiredtiger/
 mkdir build && cd build 
 cmake ../CMakeLists.txt
-make -j8
+./configure && make -j8
 
