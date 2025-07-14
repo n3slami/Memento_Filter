@@ -87,6 +87,7 @@ if ! python3 -c "import numpy"; then
 fi
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES}
 deactivate
+'
 
 cd ${project_root} 
 git checkout expandable
@@ -105,7 +106,6 @@ cd ..
 cd ../paper_results
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES} -s ${SIZE}
-'
 
 cd ${project_root} 
 git checkout master
