@@ -18,38 +18,84 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-if [[ "$#" -ne 2 ]] && [[ "$#" -ne 3 ]]; then
-    echo "Invalid number of parameters, usage: generate_datasets.sh <memento_build_path> <real_datasets_path> [tiny|small|medium|large]"
-    exit 1
-fi
-OPTIONS=("tiny" "small" "medium" "large")
-if [[ "$#" -eq 3 ]] && ! printf "%s\n" "${OPTIONS[@]}" | grep -Fxq "$3"; then
-    echo "Invalid parameters, usage: generate_datasets.sh <memento_build_path> <real_datasets_path> [tiny|small|medium|large]"
-    exit 1
-fi
+FIGURE_OPTIONS=("fpr" "construction" "true" "correlated" "vary_memento_size" "expandability" "btree")
+SIZE_OPTIONS=("tiny" "small" "medium" "large")
 
-N_KEYS=200000000
-N_QUERIES=10000000
-if [[ "$#" -eq 3 ]] && [ "$3" == "${OPTIONS[0]}" ]; then
-    N_KEYS=200000
-    N_QUERIES=10000
-elif [[ "$#" -eq 3 ]] && [ "$3" == "${OPTIONS[1]}" ]; then
-    N_KEYS=2000000
-    N_QUERIES=100000
-elif [[ "$#" -eq 3 ]] && [ "$3" == "${OPTIONS[2]}" ]; then
-    N_KEYS=20000000
-    N_QUERIES=1000000
-fi
+FIGURES="expandability,btree"
+SIZE="tiny"
 
+function print_help_message_exit() {
+    echo "Usage: generate_datasets.sh <memento_build_path> <real_datasets_path> [-f|--figures expandability,btree] [-s tiny|small|medium|large]"
+    echo "The figures parameter is a list of comma-separated names describing what workloads to generate:"
+    echo "      - expandability:     measures FPR and insert speed under growing dataset                      (Fig. 13 in the paper)"
+    echo "      - btree:             measures end-to-end B-tree performance when using Memento filter         (Fig. 14 in the paper)"
+    echo "By default, all figures are generated"
+    echo "Default size parameter is tiny"
+    exit $1
+}
+
+if [[ "$#" -lt 2 ]]; then
+    echo "Too few parameters"
+    print_help_message_exit 1
+fi
 MEMENTO_BUILD_PATH=$(realpath $1)
 if [ ! -d "$MEMENTO_BUILD_PATH" ]; then
-  echo "Grafite build path does not exist"
-  exit 1
+    echo "Memento build path does not exist"
+    exit 1
 fi
 REAL_DATASETS_PATH=$(realpath $2)
 if [ ! -d "$REAL_DATASETS_PATH" ]; then
-  echo "Real datasets path does not exist"
-  exit 1
+    echo "Real datasets path does not exist"
+    exit 1
+fi
+shift # past memento build path
+shift # past real datasets path
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -s|--size)
+            SIZE="$2"
+            if ! printf "%s\n" "${SIZE_OPTIONS[@]}" | grep -Fxq "$SIZE"; then
+                echo "Unknown size $SIZE"
+                print_help_message_exit 1
+            fi
+            shift # past argument
+            shift # past value
+            ;;
+        -f|--figures)
+            FIGURES="$2"
+            IFS="," read -ra FIGURES_ARRAY <<< "$FIGURES"
+            for i in "${FIGURES_ARRAY[@]}"; do 
+                if ! printf "%s\n" "${FIGURE_OPTIONS[@]}" | grep -Fxq "$i"; then
+                    echo "Unknown figure $i"
+                    print_help_message_exit 1
+                fi
+            done
+            shift # past argument
+            shift # past value
+            ;;
+        -*|--*)
+            echo "Unknown option $1"
+            print_help_message_exit 1
+            ;;
+        *)
+            echo "Unknown argument $1"
+            print_help_message_exit 1
+            ;;
+    esac
+done
+
+N_KEYS=200000000
+N_QUERIES=10000000
+if [ "$SIZE" == "${SIZE_OPTIONS[0]}" ]; then
+    N_KEYS=200000
+    N_QUERIES=10000
+elif [ "$SIZE" == "${SIZE_OPTIONS[1]}" ]; then
+    N_KEYS=2000000
+    N_QUERIES=100000
+elif [ "$SIZE" == "${SIZE_OPTIONS[2]}" ]; then
+    N_KEYS=20000000
+    N_QUERIES=1000000
 fi
 
 WORKLOAD_GEN_PATH=$(realpath $MEMENTO_BUILD_PATH/bench/workload_gen)
@@ -59,36 +105,6 @@ if [ ! -f "$WORKLOAD_GEN_PATH" ]; then
 fi
 
 OUT_PATH=./workloads
-generate_corr_test() {
-  i=0
-  x=0.0
-
-  while [ $i -le 10 ]
-  do
-    $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --mixed --kdist kuniform --qdist qcorrelated --corr-degree ${x}
-    if [ -d "kuniform_${i}" ]; then
-      rm -rf kuniform_${i}/
-    fi
-    mv kuniform/ kuniform_${i}/
-    x=$(echo $x + 0.1 | bc)
-    i=$(($i + 1))
-  done
-}
-
-generate_constr_time_test() {
-  i=5
-  x=100000
-  while [ $i -le 8 ]
-  do
-    $WORKLOAD_GEN_PATH -n ${N_KEYS} -q ${N_QUERIES} --kdist kuniform --qdist quniform --range-size 5 -n ${x} -q $(echo "($x * 0.1)/1" | bc)
-    if [ -d "kuniform_${i}" ]; then
-      rm -rf kuniform_${i}/
-    fi
-    mv kuniform/ kuniform_${i}/
-    x=$(echo "$x * 10" | bc)
-    i=$(($i + 1))
-  done
-}
 
 generate_expansion_test() {
   expansion_count=6
@@ -116,18 +132,24 @@ generate_b_tree_test() {
   #$WORKLOAD_GEN_PATH -n ${n_keys} -q ${n_queries} --mixed --binary-keys $REAL_DATASETS_PATH/books_200M_uint64 --range-size 0 5 --expansion-count ${expansion_count} --true-frac-count ${true_frac_count}
 }
 
-mkdir -p $OUT_PATH/expansion_test && cd $OUT_PATH/expansion_test || exit 1
-if ! generate_expansion_test ; then
-  echo "[!!] expansion_test generation failed"
-  exit 1
+if [[ "$FIGURES" == *"expandability"* ]]; then 
+    mkdir -p $OUT_PATH/expansion_test && cd $OUT_PATH/expansion_test || exit 1
+    if ! generate_expansion_test ; then
+      echo "[!!] expansion_test generation failed"
+      exit 1
+    fi
+    echo "[!!] expansion_test (Fig. 13) dataset generated"
+    cd -
 fi
-echo "[!!] expansion_test dataset generated"
 
-mkdir -p ../b_tree_test && cd ../b_tree_test || exit 1
-if ! generate_b_tree_test ; then
-  echo "[!!] b_tree_test generation failed"
-  exit 1
+if [[ "$FIGURES" == *"btree"* ]]; then 
+    mkdir -p $OUT_PATH/b_tree_test && cd $OUT_PATH/b_tree_test || exit 1
+    if ! generate_b_tree_test ; then
+        echo "[!!] b_tree_test generation failed"
+        exit 1
+    fi
+    echo "[!!] b_tree_test (Fig. 14) dataset generated"
+    cd -
 fi
-echo "[!!] b_tree_test dataset generated"
 
 echo "[!!] success, all datasets generated"
