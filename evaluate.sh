@@ -75,10 +75,8 @@ if [[ $? -ne 0 ]]; then
 fi
 
 cd ../.. && mkdir -p paper_results && cd paper_results
-pwd
-if [ ! -d "./.venv" ]; then
+if [ ! -d ".venv" ]; then
     python3 -m venv .venv
-    echo "welp"
 fi
 : '
 bash ${project_root}/bench/scripts/download_datasets.sh
@@ -88,7 +86,7 @@ if ! python3 -c "import numpy"; then
     .venv/bin/pip install numpy
 fi
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES}
-source deactivate
+deactivate
 '
 
 cd ${project_root} 
@@ -109,7 +107,7 @@ cd ../paper_results
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
 source .venv/bin/activate
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES} -s ${SIZE}
-source deactivate
+deactivate
 
 cd ${project_root} 
 git checkout master
@@ -123,5 +121,5 @@ if ! python3 -c "import pandas"; then
     .venv/bin/pip install pandas
 fi
 python3 ${project_root}/bench/scripts/plot.py -f ${FIGURES//,/ }
-source deactivate
+deactivate
 

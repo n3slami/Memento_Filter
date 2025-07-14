@@ -16,11 +16,12 @@ RUN apt-get install g++ -y
 RUN apt-get install make -y
 RUN apt-get install cmake -y
 RUN apt-get install libboost-all-dev -y
+RUN apt-get install python3-venv -y
 RUN apt-get install python3-dev -y
 RUN apt-get install python3-pip -y
 RUN apt-get install libssl-dev -y
 
-RUN git clone https://github.com/n3slami/Memento_Filter.git
+RUN git clone      https://github.com/n3slami/Memento_Filter.git
 
 WORKDIR /usr/local/Memento_Filter
 SHELL [ "/bin/bash", "-c" ]
