@@ -20,7 +20,6 @@ RUN apk add openssl-dev
 RUN git clone https://github.com/n3slami/Memento_Filter.git
 
 WORKDIR /usr/local/Memento_Filter
-RUN chmod +x evaluate.sh
 SHELL [ "/bin/bash", "-c" ]
 ENTRYPOINT [ "./evaluate.sh" ]
 
