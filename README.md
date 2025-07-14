@@ -12,6 +12,7 @@ For ease of reproducibility, the `master` branch in the repository contains an
 Memento filter, sets the benchmarks up, runs them, and plots the results. To
 use this script, ensure that the following dependencies are satisfied:
 - Boost >=1.67.0        (Used in some of the baselines, notably Grafite)
+- SWIG >=3.0.0          (Used in WiredTiger)
 - Python >=3.7          (Used to plot the experimental results only)
   - Matplotlib >=3.2.1
   - Numpy >=1.18.2
