@@ -6,6 +6,6 @@ export LD=$COMPILER
 
 cd ../wiredtiger/
 mkdir build && cd build 
-cmake ../CMakeLists.txt
+cmake ../ -DBUILD_TYPE=Release -DENABLE_PYTHON=OFF
 ./configure && make -j8
 
