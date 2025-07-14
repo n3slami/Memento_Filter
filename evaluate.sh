@@ -75,6 +75,7 @@ if [[ $? -ne 0 ]]; then
 fi
 
 cd ../.. && mkdir -p paper_results && cd paper_results
+touch figures/tmp.txt
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
