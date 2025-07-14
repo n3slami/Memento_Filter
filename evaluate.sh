@@ -74,6 +74,7 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
+: '
 cd ../.. && mkdir -p paper_results && cd paper_results
 bash ${project_root}/bench/scripts/download_datasets.sh
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
@@ -104,6 +105,7 @@ cd ..
 cd ../paper_results
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES} -s ${SIZE}
+'
 
 cd ${project_root} 
 git checkout master

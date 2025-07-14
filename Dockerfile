@@ -10,10 +10,12 @@ RUN apk add wget
 RUN apk add coreutils
 RUN apk add curl
 RUN apk add git
+RUN apk add gcc
 RUN apk add g++
 RUN apk add make
 RUN apk add cmake
 RUN apk add boost-dev
+RUN apk add python3-dev
 RUN apk add py-pip
 RUN apk add openssl-dev
 
