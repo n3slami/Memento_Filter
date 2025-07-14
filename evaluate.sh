@@ -116,6 +116,6 @@ if ! python3 -c "import pandas"; then
     python3 -m pip install Jinja2
     python3 -m pip install pandas
 fi
-python3 ${project_root}/bench/scripts/plot.py -f ${FIGURES}
+python3 ${project_root}/bench/scripts/plot.py -f ${FIGURES//,/ }
 deactivate
 
