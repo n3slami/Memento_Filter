@@ -74,13 +74,13 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
-: '
 cd ../.. && mkdir -p paper_results && cd paper_results
-bash ${project_root}/bench/scripts/download_datasets.sh
-bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
+: '
+bash ${project_root}/bench/scripts/download_datasets.sh
+bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
 source .venv/bin/activate
 if ! python3 -c "import numpy"; then
     .venv/bin/pip install numpy
