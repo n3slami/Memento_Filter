@@ -75,7 +75,8 @@ if [[ $? -ne 0 ]]; then
 fi
 
 cd ../.. && mkdir -p paper_results && cd paper_results
-if [ ! -d ".venv" ]; then
+pwd
+if [ ! -d "./.venv" ]; then
     python3 -m venv .venv
     echo "welp"
 fi
