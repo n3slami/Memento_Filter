@@ -5,7 +5,7 @@ WORKDIR /usr/local/
 # Install dependencies
 RUN apk update && apk upgrade
 RUN apk add texlive-full
-RUN apk add zstd
+RUN apk add zstd zstd-libs
 RUN apk add wget
 RUN apk add coreutils
 RUN apk add curl
