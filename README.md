@@ -11,12 +11,10 @@ For ease of reproducibility, the `master` branch in the repository contains an
 `evaluate.sh` script. This script downloads the required datasets, compiles
 Memento filter, sets the benchmarks up, runs them, and plots the results. To
 use this script, ensure that the following dependencies are satisfied:
+- CMake >=3.30.8        (Used to compile the baselines)
 - Boost >=1.67.0        (Used in some of the baselines, notably Grafite)
 - SWIG >=3.0.0          (Used in WiredTiger)
 - Python >=3.7          (Used to plot the experimental results only)
-  - Matplotlib >=3.2.1
-  - Numpy >=1.18.2
-  - Pandas >=1.0.3
 We also advise using a Linux machine with at least 32GB of RAM. Then, running
 ```bash
 git clone https://github.com/n3slami/Memento_Filter.git

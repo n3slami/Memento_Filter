@@ -77,7 +77,15 @@ fi
 cd ../.. && mkdir -p paper_results && cd paper_results
 bash ${project_root}/bench/scripts/download_datasets.sh
 bash ${project_root}/bench/scripts/generate_datasets.sh ${project_root}/build real_datasets -f ${FIGURES} -s ${SIZE}
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+fi
+source .venv/bin/activate
+if ! python3 -c "import numpy"; then
+    python3 -m pip install numpy
+fi
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES}
+deactivate
 
 cd ${project_root} 
 git checkout expandable
@@ -100,4 +108,14 @@ bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build worklo
 cd ${project_root} 
 git checkout master
 cd ../paper_results/
+source .venv/bin/activate
+if ! python3 -c "import matplotlib"; then
+    python3 -m pip install matplotlib
+fi
+if ! python3 -c "import pandas"; then
+    python3 -m pip install Jinja2
+    python3 -m pip install pandas
+fi
 python3 ${project_root}/bench/scripts/plot.py -f ${FIGURES}
+deactivate
+
