@@ -645,6 +645,6 @@ if __name__ == "__main__":
         try:
             PLOTTERS[figure]()
         except:
-            pass
+            print("something went wrong...")
 
 
