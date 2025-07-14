@@ -77,6 +77,7 @@ fi
 cd ../.. && mkdir -p paper_results && cd paper_results
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
+    echo "welp"
 fi
 : '
 bash ${project_root}/bench/scripts/download_datasets.sh
