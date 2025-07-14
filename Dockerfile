@@ -20,8 +20,9 @@ RUN apt-get install python3-venv -y
 RUN apt-get install python3-dev -y
 RUN apt-get install python3-pip -y
 RUN apt-get install libssl-dev -y
+RUN apt-get install bc -y
 
-RUN git clone      https://github.com/n3slami/Memento_Filter.git
+RUN git clone https://github.com/n3slami/Memento_Filter.git
 
 WORKDIR /usr/local/Memento_Filter
 SHELL [ "/bin/bash", "-c" ]

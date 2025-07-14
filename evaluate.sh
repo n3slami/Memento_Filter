@@ -110,6 +110,7 @@ deactivate
 cd ${project_root} 
 git checkout master
 cd ../paper_results/
+pwd
 source .venv/bin/activate
 if ! python3 -c "import matplotlib"; then
     .venv/bin/pip install matplotlib
