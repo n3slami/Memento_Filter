@@ -83,7 +83,7 @@ if [ ! -d ".venv" ]; then
 fi
 source .venv/bin/activate
 if ! python3 -c "import numpy"; then
-    python3 -m pip install numpy
+    .venv/bin/pip install numpy
 fi
 bash ${project_root}/bench/scripts/execute_tests.sh ${project_root}/build workloads -f ${FIGURES}
 deactivate
@@ -114,11 +114,11 @@ git checkout master
 cd ../paper_results/
 source .venv/bin/activate
 if ! python3 -c "import matplotlib"; then
-    python3 -m pip install matplotlib
+    .venv/bin/pip install matplotlib
 fi
 if ! python3 -c "import pandas"; then
-    python3 -m pip install Jinja2
-    python3 -m pip install pandas
+    .venv/bin/pip install Jinja2
+    .venv/bin/pip install pandas
 fi
 python3 ${project_root}/bench/scripts/plot.py -f ${FIGURES//,/ }
 deactivate

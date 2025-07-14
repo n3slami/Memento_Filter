@@ -1,23 +1,24 @@
-FROM alpine:3.14
+FROM ubuntu:latest
 
 WORKDIR /usr/local/
 
 # Install dependencies
-RUN apk update && apk upgrade
-RUN apk add texlive-full
-RUN apk add zstd zstd-libs
-RUN apk add wget
-RUN apk add coreutils
-RUN apk add curl
-RUN apk add git
-RUN apk add gcc
-RUN apk add g++
-RUN apk add make
-RUN apk add cmake
-RUN apk add boost-dev
-RUN apk add python3-dev
-RUN apk add py-pip
-RUN apk add openssl-dev
+RUN apt-get update && apt-get upgrade -y
+#RUN apt-get install texlive-full -y
+RUN apt-get install zstd -y
+RUN apt-get install wget -y
+RUN apt-get install coreutils -y
+RUN apt-get install curl -y
+RUN apt-get install build-essential -y
+RUN apt-get install git -y
+RUN apt-get install gcc -y
+RUN apt-get install g++ -y
+RUN apt-get install make -y
+RUN apt-get install cmake -y
+RUN apt-get install libboost-all-dev -y
+RUN apt-get install python3-dev -y
+RUN apt-get install python3-pip -y
+RUN apt-get install libssl-dev -y
 
 RUN git clone https://github.com/n3slami/Memento_Filter.git
 
