@@ -4,7 +4,7 @@ WORKDIR /usr/local/
 
 # Install dependencies
 RUN apt-get update && apt-get upgrade -y
-#RUN apt-get install texlive-full -y
+RUN apt-get install texlive-full -y
 RUN apt-get install zstd -y
 RUN apt-get install wget -y
 RUN apt-get install coreutils -y
@@ -22,9 +22,10 @@ RUN apt-get install python3-pip -y
 RUN apt-get install libssl-dev -y
 RUN apt-get install bc -y
 
-RUN git clone https://github.com/n3slami/Memento_Filter.git
+RUN git clone     https://github.com/n3slami/Memento_Filter.git
 
 WORKDIR /usr/local/Memento_Filter
 SHELL [ "/bin/bash", "-c" ]
-ENTRYPOINT [ "./evaluate.sh" ]
+ENTRYPOINT [ "./evaluate.sh", "-s", "large" ]
+#ENTRYPOINT [ "./evaluate.sh" ]
 

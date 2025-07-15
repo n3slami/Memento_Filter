@@ -44,6 +44,9 @@ while [[ $# -gt 0 ]]; do
             shift # past argument
             shift # past value
             ;;
+        -h|--help)
+            print_help_message_exit 0;
+            ;;
         -*|--*)
             echo "Unknown option $1"
             print_help_message_exit 1;
