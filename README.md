@@ -41,9 +41,9 @@ To use the `evaluate.sh` script, ensure that the following dependencies are
 satisfied:
 - CMake >=3.30.8        (Used to compile the baselines)
 - Boost >=1.67.0        (Used in some of the baselines, notably Grafite)
-- libssl-dev >= 1:3.2.4 (Used in WiredTiger)
-- python3-dev >= 3.13.5 (Used in WiredTiger)
-- python3-env >= 3.13.5 (Used to plot the experimental results only)
+- libssl-dev >=1:3.2.4  (Used in WiredTiger)
+- python3-dev >=3.13.5  (Used in WiredTiger)
+- python3-env >=3.13.5  (Used to plot the experimental results only)
 - Python 3 >=3.7        (Used to plot the experimental results only)
 - Latex full            (Used to plot the experimental results only)
 Then, running
