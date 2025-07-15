@@ -642,9 +642,6 @@ if __name__ == "__main__":
     logging.info(f"Ouput Figure Path: {out_folder}")
     for figure in (PLOTTERS if "all" in args.figures else args.figures):
         print("generating figure:", figure)
-        try:
-            PLOTTERS[figure]()
-        except:
-            print("something went wrong...")
+        PLOTTERS[figure]()
 
 
